@@ -24,11 +24,16 @@ import {
 } from "@/shared/constants/providers";
 import Link from "next/link";
 import { getErrorCode, getRelativeTime } from "@/shared/utils";
+import {
+  getProviderConnectionsForSummary,
+  isConnectionIssue,
+  summarizeProviderConnections,
+} from "@/shared/utils/providerConnectionStats";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useHeaderSearchStore } from "@/store/headerSearchStore";
 import ModelAvailabilityBadge from "./components/ModelAvailabilityBadge";
 
-function getStatusDisplay(connected, error, errorCode) {
+function getStatusDisplay(connected, error, errorCode, total) {
   const parts = [];
   if (connected > 0) {
     parts.push(
@@ -48,6 +53,13 @@ function getStatusDisplay(connected, error, errorCode) {
     );
   }
   if (parts.length === 0) {
+    if (total > 0) {
+      return (
+        <Badge key="added" variant="default" size="sm">
+          {total} Added
+        </Badge>
+      );
+    }
     return <span className="text-text-muted">No connections</span>;
   }
   return parts;
@@ -91,6 +103,12 @@ function getConnectionErrorTag(connection) {
     msg.includes("unauthorized")
   )
     return "AUTH";
+  if (
+    msg.includes("restricted") ||
+    msg.includes("suspend") ||
+    msg.includes("banned")
+  )
+    return "BAN";
 
   return "ERR";
 }
@@ -202,36 +220,18 @@ export default function ProvidersPage() {
   }, []);
 
   const getProviderStats = (providerId, authType) => {
-    const providerConnections = connections.filter(
-      (c) => c.provider === providerId && c.authType === authType,
+    const providerConnections = getProviderConnectionsForSummary(
+      connections,
+      providerId,
+      authType,
     );
-
-    const getEffectiveStatus = (conn) => {
-      const isCooldown = Object.entries(conn).some(
-        ([k, v]) =>
-          k.startsWith("modelLock_") && v && new Date(v).getTime() > Date.now(),
-      );
-      return conn.testStatus === "unavailable" && !isCooldown
-        ? "active"
-        : conn.testStatus;
-    };
-
-    const connected = providerConnections.filter((c) => {
-      const status = getEffectiveStatus(c);
-      return status === "active" || status === "success";
-    }).length;
-
-    const errorConns = providerConnections.filter((c) => {
-      const status = getEffectiveStatus(c);
-      return (
-        status === "error" || status === "expired" || status === "unavailable"
-      );
-    });
-
-    const error = errorConns.length;
-    const total = providerConnections.length;
-    const allDisabled =
-      total > 0 && providerConnections.every((c) => c.isActive === false);
+    const {
+      connected,
+      issue: error,
+      total,
+      allDisabled,
+    } = summarizeProviderConnections(providerConnections);
+    const errorConns = providerConnections.filter(isConnectionIssue);
 
     const latestError = errorConns.sort(
       (a, b) => new Date(b.lastErrorAt || 0) - new Date(a.lastErrorAt || 0),
@@ -246,12 +246,15 @@ export default function ProvidersPage() {
 
   // Toggle all connections for a provider on/off
   const handleToggleProvider = async (providerId, authType, newActive) => {
-    const providerConns = connections.filter(
-      (c) => c.provider === providerId && c.authType === authType,
+    const providerConns = getProviderConnectionsForSummary(
+      connections,
+      providerId,
+      authType,
     );
+    const targetIds = new Set(providerConns.map((connection) => connection.id));
     setConnections((prev) =>
       prev.map((c) =>
-        c.provider === providerId && c.authType === authType
+        targetIds.has(c.id)
           ? { ...c, isActive: newActive }
           : c,
       ),
@@ -699,7 +702,7 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
                   <Badge variant="success" size="sm" dot>Ready</Badge>
                 ) : (
                   <>
-                    {getStatusDisplay(connected, error, errorCode)}
+                    {getStatusDisplay(connected, error, errorCode, stats.total)}
                     {errorTime && (
                       <span className="text-text-muted">{errorTime}</span>
                     )}
@@ -825,7 +828,7 @@ function ApiKeyProviderCard({
                   </Badge>
                 ) : (
                   <>
-                    {getStatusDisplay(connected, error, errorCode)}
+                    {getStatusDisplay(connected, error, errorCode, stats.total)}
                     {isCompatible && (
                       <Badge variant="default" size="sm">
                         {provider.apiType === "responses"
