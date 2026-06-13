@@ -34,6 +34,82 @@ function truncateMiddle(text, maxChars, label = "truncated for CodeBuddy") {
   return `${text.slice(0, head)}\n\n[${label}]\n\n${text.slice(-tail)}`;
 }
 
+function parseBase64DataUri(url) {
+  if (typeof url !== "string") return null;
+  const match = url.match(/^data:([^;,]+)(?:;[^,]*)?;base64,([\s\S]+)$/i);
+  if (!match) return null;
+  return {
+    declaredMime: match[1].toLowerCase(),
+    payload: match[2],
+  };
+}
+
+function sniffImageMimeFromBase64(payload) {
+  if (typeof payload !== "string" || payload.length === 0) return null;
+  try {
+    const bytes = Buffer.from(payload, "base64");
+    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) {
+      return "image/png";
+    }
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      return "image/jpeg";
+    }
+    if (bytes.length >= 6) {
+      const gifHeader = bytes.subarray(0, 6).toString("ascii");
+      if (gifHeader === "GIF87a" || gifHeader === "GIF89a") return "image/gif";
+    }
+    if (bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") {
+      return "image/webp";
+    }
+    if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+      return "image/bmp";
+    }
+    if (bytes.length >= 4) {
+      const boxType = bytes.subarray(4, 12).toString("ascii");
+      if (boxType.startsWith("ftypavif")) return "image/avif";
+      if (boxType.startsWith("ftypheic") || boxType.startsWith("ftypheix") || boxType.startsWith("ftyphevc") || boxType.startsWith("ftyphevx")) {
+        return "image/heic";
+      }
+    }
+    if (bytes.length >= 4 && (
+      (bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2a && bytes[3] === 0x00)
+      || (bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[2] === 0x00 && bytes[3] === 0x2a)
+    )) {
+      return "image/tiff";
+    }
+    const textPrefix = bytes.subarray(0, 128).toString("utf8").trimStart();
+    if (textPrefix.startsWith("<svg") || textPrefix.startsWith("<?xml")) {
+      return "image/svg+xml";
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizeCodeBuddyImagePart(part) {
+  if (!part || typeof part !== "object" || part.type !== "image_url") return part;
+  const rawUrl = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
+  const parsed = parseBase64DataUri(rawUrl);
+  if (!parsed) return part;
+  const actualMime = sniffImageMimeFromBase64(parsed.payload);
+  if (!actualMime || actualMime === parsed.declaredMime) return part;
+  const normalizedUrl = `data:${actualMime};base64,${parsed.payload}`;
+  if (typeof part.image_url === "string") {
+    return {
+      ...part,
+      image_url: normalizedUrl,
+    };
+  }
+  return {
+    ...part,
+    image_url: {
+      ...part.image_url,
+      url: normalizedUrl,
+    },
+  };
+}
+
 function sanitizeCodeBuddyContent(content, role) {
   if (role === "system" || role === "developer") return "";
   if (typeof content === "string") {
@@ -42,7 +118,7 @@ function sanitizeCodeBuddyContent(content, role) {
   if (!Array.isArray(content)) return content;
   return content.map((part) => {
     if (!part || typeof part !== "object") return part;
-    return part;
+    return normalizeCodeBuddyImagePart(part);
   });
 }
 
