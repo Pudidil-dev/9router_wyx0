@@ -4,6 +4,7 @@
 
 import { CLIENT_METADATA, getPlatformUserAgent } from "../config/appConstants.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { resolveDefaultProfileArn } from "../config/kiroConstants.js";
 
 // GitHub API config
 const GITHUB_CONFIG = {
@@ -28,6 +29,11 @@ const MINIMAX_USAGE_URLS = {
     "https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains",
   ],
 };
+
+// Vercel AI Gateway credits endpoint
+// Returns { balance: "95.50", total_used: "4.50" } (USD as decimal strings).
+// Docs: https://vercel.com/docs/ai-gateway/usage
+const VERCEL_AI_GATEWAY_CREDITS_URL = "https://ai-gateway.vercel.sh/v1/credits";
 
 // Antigravity API config (from Quotio)
 const ANTIGRAVITY_CONFIG = {
@@ -92,7 +98,11 @@ export async function getUsageForProvider(connection, proxyOptions = null) {
     case "kiro":
       return await getKiroUsage(accessToken, providerSpecificData, proxyOptions);
     case "codebuddy":
-      return await getCodeBuddyUsage(accessToken, providerSpecificData, proxyOptions);
+      return await getCodeBuddyUsage(
+        accessToken || apiKey,
+        providerSpecificData,
+        proxyOptions,
+      );
     case "qoder":
       return await getQoderUsage(accessToken, proxyOptions);
     case "qwen":
@@ -107,6 +117,8 @@ export async function getUsageForProvider(connection, proxyOptions = null) {
     case "minimax":
     case "minimax-cn":
       return await getMiniMaxUsage(apiKey, provider, proxyOptions);
+    case "vercel-ai-gateway":
+      return await getVercelAiGatewayUsage(apiKey, proxyOptions);
     default:
       return { message: `Usage API not implemented for ${provider}` };
   }
@@ -142,16 +154,30 @@ async function fetchCodeBuddyUid(accessToken, providerSpecificData = {}, proxyOp
 }
 
 async function getCodeBuddyUsage(accessToken, providerSpecificData = {}, proxyOptions = null) {
-  if (!accessToken) {
-    return { plan: "CodeBuddy", message: "CodeBuddy access token not available.", quotas: {} };
+  const webCookie = providerSpecificData?.webCookie;
+  if (!webCookie && !accessToken) {
+    return {
+      plan: "CodeBuddy",
+      message: "CodeBuddy quota credentials are not available. Attach a Quota Cookie from the provider page.",
+      quotas: {},
+    };
   }
 
   try {
-    const { uid, enterpriseId } = await fetchCodeBuddyUid(accessToken, providerSpecificData, proxyOptions);
+    const useWebCookie = !accessToken && Boolean(webCookie);
+    const { uid, enterpriseId } = useWebCookie
+      ? { uid: null, enterpriseId: null }
+      : await fetchCodeBuddyUid(accessToken, providerSpecificData, proxyOptions);
 
     const response = await proxyAwareFetch(CODEBUDDY_CONFIG.usageUrl, {
       method: "POST",
-      headers: buildCodeBuddyUsageHeaders(accessToken, providerSpecificData, uid, enterpriseId),
+      headers: buildCodeBuddyUsageHeaders(
+        accessToken,
+        providerSpecificData,
+        uid,
+        enterpriseId,
+        useWebCookie ? webCookie : null,
+      ),
       body: JSON.stringify(buildCodeBuddyUsageBody()),
     }, proxyOptions);
 
@@ -166,7 +192,9 @@ async function getCodeBuddyUsage(accessToken, providerSpecificData = {}, proxyOp
     if (response.status === 401 || response.status === 403) {
       return {
         plan: "CodeBuddy",
-        message: `CodeBuddy quota: auth failed (${response.status}). uid=${uid ? "yes" : "missing"}.`,
+        message: useWebCookie
+          ? `CodeBuddy quota cookie is expired or unauthorized (${response.status}). Attach a fresh Quota Cookie.`
+          : `CodeBuddy quota API key is unauthorized (${response.status}).`,
         quotas: {},
       };
     }
@@ -240,16 +268,31 @@ function buildCodeBuddyUsageBody() {
   };
 }
 
-function buildCodeBuddyUsageHeaders(accessToken, providerSpecificData = {}, uid = null, enterpriseId = null) {
+function buildCodeBuddyUsageHeaders(
+  accessToken,
+  providerSpecificData = {},
+  uid = null,
+  enterpriseId = null,
+  webCookie = null,
+) {
   const domain = providerSpecificData?.domain || providerSpecificData?.rawAuth?.domain || "www.codebuddy.ai";
 
   const headers = {
-    Authorization: `Bearer ${accessToken}`,
     Accept: "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
     "X-Domain": domain,
   };
+
+  if (webCookie) {
+    headers.Cookie = webCookie;
+    headers.Origin = `https://${domain}`;
+    headers.Referer = `https://${domain}/profile/usage`;
+  } else if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
 
   if (uid) {
     headers["X-User-Id"] = uid;
@@ -1019,10 +1062,8 @@ function parseKiroQuotaData(data) {
 }
 
 async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = null) {
-  // Default profileArn fallback
-  const DEFAULT_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX";
-  const profileArn = providerSpecificData?.profileArn || DEFAULT_PROFILE_ARN;
   const authMethod = providerSpecificData?.authMethod || "builder-id";
+  const profileArn = providerSpecificData?.profileArn || resolveDefaultProfileArn(authMethod);
 
   const getUsageParams = new URLSearchParams({
     isEmailRequired: "true",
@@ -1470,6 +1511,89 @@ async function getMiniMaxUsage(apiKey, provider, proxyOptions = null) {
   return { message: lastErrorMessage ? `MiniMax connected. Unable to fetch usage: ${lastErrorMessage}` : "MiniMax connected. Unable to fetch usage." };
 }
 
+
+/**
+ * Vercel AI Gateway usage — credit balance for the API key
+ *
+ * Calls GET /v1/credits which returns:
+ *   { "balance": "95.50", "total_used": "4.50" }   (USD as decimal strings)
+ *
+ * We surface this as a single "Balance ($)" quota row so the existing
+ * QuotaTable / progress-bar UI can render it. used = total_used,
+ * total = balance + total_used (the original credit allotment), so the
+ * remaining percentage equals balance / total.
+ *
+ * Docs: https://vercel.com/docs/ai-gateway/usage
+ */
+async function getVercelAiGatewayUsage(apiKey, proxyOptions = null) {
+  if (!apiKey) {
+    return { message: "Vercel AI Gateway API key not available." };
+  }
+
+  try {
+    const response = await proxyAwareFetch(VERCEL_AI_GATEWAY_CREDITS_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json",
+      },
+    }, proxyOptions);
+
+    if (response.status === 401 || response.status === 403) {
+      return { message: "Vercel AI Gateway API key invalid or expired." };
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      const trimmed = errorText ? `: ${errorText.slice(0, 200)}` : "";
+      return { message: `Vercel AI Gateway credits API error (${response.status})${trimmed}` };
+    }
+
+    const data = await response.json();
+
+    // Vercel returns numeric strings; coerce safely.
+    const balance = Number(data?.balance) || 0;
+    const totalUsed = Number(data?.total_used) || 0;
+
+    // Vercel gives $5/month free credit. The API doesn't return the
+    // monthly allocation so we use the known constant as the denominator.
+    const MONTHLY_CREDIT = 5;
+    const remainingPercentage = (balance / MONTHLY_CREDIT) * 100;
+
+    if (balance <= 0 && totalUsed <= 0) {
+      return {
+        plan: "Pay-as-you-go",
+        message: "Vercel AI Gateway connected. No credit allocation found (BYOK or unfunded account).",
+        quotas: {},
+      };
+    }
+
+    // "Used (USD)": how much has been spent this month (no fixed cap → unlimited).
+    // "Remaining (USD)": balance remaining out of the $5 monthly allocation.
+    return {
+      plan: "Pay-as-you-go",
+      quotas: {
+        "Used (USD)": {
+          used: totalUsed,
+          total: 0,
+          remaining: 0,
+          remainingPercentage: 100,
+          unlimited: true,
+        },
+        "Remaining (USD)": {
+          used: balance,
+          total: MONTHLY_CREDIT,
+          remaining: balance,
+          remainingPercentage,
+          unlimited: false,
+        },
+      },
+    };
+  } catch (error) {
+    return { message: `Vercel AI Gateway error: ${error.message}` };
+  }
+}
+
 async function getQoderUsage(accessToken, proxyOptions = null) {
   if (!accessToken) {
     return { message: "Qoder usage unavailable: no access token" };
@@ -1493,39 +1617,53 @@ async function getQoderUsage(accessToken, proxyOptions = null) {
     if (!body) {
       return { message: "Qoder connected. Usage response was not JSON." };
     }
-    // Quota records live under `quotas`; scalar metadata
-    // (totalUsagePercentage, isQuotaExceeded, expiresAt) are surfaced as
-    // siblings so the dashboard parser doesn't try to render them as rows.
     const userQuota = body.userQuota || {};
     const orgQuota = body.orgResourcePackage || {};
-    // Qoder publishes a single absolute reset timestamp (`expiresAt` in ms);
-    // surface it on every quota record as ISO so the table can render
-    // "resets at" alongside used/total.
     const expiresAtMs = Number.isFinite(Number(body.expiresAt)) && Number(body.expiresAt) > 0
       ? Number(body.expiresAt)
       : null;
-    const resetAt = expiresAtMs ? new Date(expiresAtMs).toISOString() : null;
-    const quotas = {
-      user: {
-        total: Number(userQuota.total) || 0,
-        used: Number(userQuota.used) || 0,
-        remaining: Number(userQuota.remaining) || 0,
-        unit: userQuota.unit || "credits",
+    const resetDate = expiresAtMs ? new Date(expiresAtMs) : null;
+    const resetAt = resetDate
+      && Number.isFinite(resetDate.getTime())
+      && resetDate.getUTCFullYear() < 2100
+      ? resetDate.toISOString()
+      : null;
+
+    const quotas = {};
+    const appendQuota = (key, source) => {
+      const total = Number(source?.total) || 0;
+      if (total <= 0) return;
+
+      quotas[key] = {
+        total,
+        used: Math.max(0, Number(source?.used) || 0),
+        remaining: Math.max(0, Number(source?.remaining) || 0),
+        unit: source?.unit || "credits",
         resetAt,
-      },
-      organization: {
-        total: Number(orgQuota.total) || 0,
-        used: Number(orgQuota.used) || 0,
-        remaining: Number(orgQuota.remaining) || 0,
-        unit: orgQuota.unit || "credits",
-        resetAt,
-      },
+      };
     };
+
+    appendQuota("user", userQuota);
+    appendQuota("organization", orgQuota);
+
+    if (Object.keys(quotas).length === 0) {
+      return {
+        plan: body.userType || "Qoder",
+        message: body.isQuotaExceeded
+          ? "Qoder reports this account quota is exhausted. Chat availability may differ from the quota endpoint."
+          : "Qoder connected, but the quota API did not provide a numeric allocation.",
+        quotas: {},
+        totalUsagePercentage: Number(body.totalUsagePercentage) || 0,
+        isQuotaExceeded: !!body.isQuotaExceeded,
+        expiresAt: resetAt ? expiresAtMs : null,
+      };
+    }
+
     return {
       quotas,
       totalUsagePercentage: Number(body.totalUsagePercentage) || 0,
       isQuotaExceeded: !!body.isQuotaExceeded,
-      expiresAt: expiresAtMs,
+      expiresAt: resetAt ? expiresAtMs : null,
     };
   } catch (error) {
     return { message: `Qoder connected. Unable to fetch usage: ${error.message}` };

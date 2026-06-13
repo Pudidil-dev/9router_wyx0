@@ -1,6 +1,6 @@
 {
   "name": "wyxrouter",
-  "version": "0.4.74",
+  "version": "0.4.80",
   "description": "WYx0 fork of 9Router - AI Router with Kiro/CodeBuddy automation and quota tracking",
   "bin": {
     "wyxrouter": "./cli/cli.js"
@@ -27,11 +27,14 @@
     "dev": "next dev --webpack --port 20128",
     "build": "node scripts/build-next.mjs",
     "start": "node ./scripts/start-standalone.mjs",
-    "dev:bun": "bun --bun next dev --webpack --port 20128",
+    "dev:bun": "bun --bun next dev --webpack --port 20129",
     "build:bun": "bun --bun next build --webpack",
     "start:bun": "bun ./.next/standalone/server.js",
+    "cli:pack": "npm --prefix cli run pack:cli",
+    "cli:publish": "npm --prefix cli run publish:cli",
     "prepack": "echo 'Ensure cli/app is built before publishing: node cli/scripts/build-cli.js'",
-    "postinstall": "node cli/hooks/postinstall.js"
+    "postinstall": "node cli/hooks/postinstall.js",
+    "wyx": "node ./scripts/start-wyx-fast.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -72,6 +75,7 @@
   "comment_better_sqlite3": "kept in optionalDependencies so npm install doesn't fail on systems without build tools — sql.js is used as fallback at runtime",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "esbuild": "^0.28.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.6",

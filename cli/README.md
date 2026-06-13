@@ -1,4 +1,4 @@
-# 9Router - FREE AI Router & Token Saver
+# 9Router WYx0 - FREE AI Router & Token Saver
 
 **Never stop coding. Save 20-40% tokens with RTK + auto-fallback to FREE & cheap AI models.**
 
@@ -50,14 +50,14 @@ npx 9router
 **Option 2 — Docker (server/VPS):**
 
 ```bash
-docker run -d --name 9router -p 20128:20128 \
+docker run -d --name 9router -p 20129:20129 \
   -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data \
   decolua/9router:latest
 ```
 
 Published images: [Docker Hub](https://hub.docker.com/r/decolua/9router) • [GHCR](https://github.com/decolua/9router/pkgs/container/9router) (multi-platform amd64/arm64).
 
-🎉 Dashboard opens at `http://localhost:20128`
+🎉 Dashboard opens at `http://localhost:20129`
 
 **2. Connect a FREE provider (no signup needed):**
 
@@ -67,7 +67,7 @@ Dashboard → Providers → Connect **Kiro AI** (free Claude unlimited) or **Ope
 
 ```
 Claude Code/Codex/OpenClaw/Cursor/Cline Settings:
-  Endpoint: http://localhost:20128/v1
+  Endpoint: http://localhost:20129/v1
   API Key:  [copy from dashboard]
   Model:    kr/claude-sonnet-4.5
 ```
@@ -86,7 +86,9 @@ That's it! Start coding with FREE AI models.
 9router --help             # Show all options
 ```
 
-**Dashboard**: `http://localhost:20128/dashboard`
+**Dashboard**: `http://localhost:20129/dashboard`
+
+WYx0 note: this fork defaults to `20129` so it can coexist with other local router setups without port collisions.
 
 ---
 

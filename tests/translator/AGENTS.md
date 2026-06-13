@@ -1,5 +1,20 @@
 # Translation Layer Tests
 
+## Purpose
+
+- Own compatibility and regression coverage for `open-sse/translator/`, including the provider/model matrix and source-to-target format bridges.
+
+## Ownership
+
+- This file governs the complete `tests/translator` subtree, including offline matrix tests and explicitly gated live-provider tests under `real/`.
+- Parent test-wide security, naming, and verification contracts in `tests/AGENTS.md` also apply.
+
+## Local Contracts
+
+- Import `registerAll.js` in tests that call translator registry APIs so Vitest does not produce false passes with an empty registry.
+- Keep normal translator tests offline and place network-backed coverage under `real/` behind `RUN_REAL=1`.
+- Preserve the `it.fails` convention for confirmed, unfixed compatibility defects and convert it to `it` when the defect is fixed.
+
 Tests for `open-sse/translator/`. Goals: (1) data-driven coverage of every provider/model, (2) expose bugs caused by using OpenAI as the intermediate format.
 
 ## 1. Translation layer structure (`open-sse/translator/`)
@@ -118,3 +133,7 @@ Grouped per CLI/provider test file. Each row is an `it.fails` case.
 | CommandCode image → `[image omitted]` | `request/openai-to-commandcode.js:41-42` |
 
 Fixing a bug → rerun; the matching `it.fails` test turns RED → switch it to a regular `it` and verify correct behavior.
+
+## Child DOX Index
+
+- No child DOX files are currently defined; this file owns the full `tests/translator` subtree.

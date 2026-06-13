@@ -364,6 +364,63 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
   });
 }
 
+function buildCodeBuddyTestHeaders(connection) {
+  const providerSpecificData = connection.providerSpecificData || {};
+  const requestId = crypto.randomUUID();
+  const conversationId = crypto.randomUUID();
+
+  return {
+    "Authorization": `Bearer ${connection.apiKey}`,
+    "Accept": "application/json",
+    "Content-Type": "application/json; charset=utf-8",
+    "User-Agent": "CLI/2.105.2 CodeBuddy/2.105.2",
+    "X-Requested-With": "XMLHttpRequest",
+    "X-Domain": providerSpecificData.domain || "www.codebuddy.ai",
+    "X-Request-ID": requestId,
+    "X-Conversation-ID": conversationId,
+    "X-Conversation-Request-ID": conversationId,
+    "X-Conversation-Message-ID": requestId,
+    "X-Agent-Intent": "craft",
+    "X-IDE-Type": "CLI",
+    "X-IDE-Name": "CLI",
+    "X-IDE-Version": "2.105.2",
+    "X-Private-Data": "false",
+  };
+}
+
+async function testCodeBuddyApiKeyConnection(connection, effectiveProxy = null) {
+  const response = await fetchWithConnectionProxy("https://www.codebuddy.ai/v2/chat/completions", {
+    method: "POST",
+    headers: buildCodeBuddyTestHeaders(connection),
+    body: JSON.stringify({
+      model: getDefaultModel("codebuddy"),
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 1,
+      stream: false,
+    }),
+  }, effectiveProxy);
+
+  if (response.status === 401) {
+    return { valid: false, error: "Invalid API key" };
+  }
+
+  if (response.status === 403) {
+    return { valid: false, error: "Access denied" };
+  }
+
+  if (response.ok) {
+    return { valid: true, error: null };
+  }
+
+  // CodeBuddy may still return non-2xx for temporary capacity/policy/runtime reasons
+  // even when the API key is accepted. Treat auth-success statuses as a supported connection.
+  if ([400, 404, 408, 409, 413, 422, 423, 425, 429, 500, 502, 503, 504].includes(response.status)) {
+    return { valid: true, error: null };
+  }
+
+  return { valid: false, error: `API returned ${response.status}` };
+}
+
 async function testApiKeyConnection(connection, effectiveProxy = null) {
   if (isOpenAICompatibleProvider(connection.provider)) {
     const modelsBase = connection.providerSpecificData?.baseUrl;
@@ -447,6 +504,9 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
       case "openrouter": {
         const res = await fetchWithConnectionProxy("https://openrouter.ai/api/v1/auth/key", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
+      case "codebuddy": {
+        return await testCodeBuddyApiKeyConnection(connection, effectiveProxy);
       }
       case "glm": {
         const res = await fetchWithConnectionProxy("https://api.z.ai/api/anthropic/v1/messages", {
@@ -555,7 +615,7 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "siliconflow": {
-        const res = await fetchWithConnectionProxy("https://api.siliconflow.cn/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
+        const res = await fetchWithConnectionProxy("https://api.siliconflow.com/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "hyperbolic": {

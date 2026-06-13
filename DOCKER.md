@@ -1,6 +1,6 @@
 # Docker
 
-Run 9Router in a container. Published image: [`decolua/9router`](https://hub.docker.com/r/decolua/9router) — multi-platform `linux/amd64` + `linux/arm64`.
+Run 9Router WYx0 in a container. The examples here use port `20129` so this fork can live beside other local router instances without collisions.
 
 ---
 
@@ -10,14 +10,14 @@ Run 9Router in a container. Published image: [`decolua/9router`](https://hub.doc
 
 ```bash
 docker run -d \
-  -p 20128:20128 \
+  -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   --name 9router \
   decolua/9router:latest
 ```
 
-App listens on port `20128`. Open: http://localhost:20128
+App listens on port `20129`. Open: http://localhost:20129
 
 ## Manage container
 
@@ -54,10 +54,10 @@ Container path: `/app/data/db/data.sqlite`
 
 ```bash
 docker run -d \
-  -p 20128:20128 \
+  -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
-  -e PORT=20128 \
+  -e PORT=20129 \
   -e HOSTNAME=0.0.0.0 \
   -e DEBUG=true \
   --name 9router \
@@ -81,7 +81,7 @@ docker rm -f 9router
 ```bash
 cd app && docker build -t 9router .
 
-docker run --rm -p 20128:20128 \
+docker run --rm -p 20129:20129 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   9router

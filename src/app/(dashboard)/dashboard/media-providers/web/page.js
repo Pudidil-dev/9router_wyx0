@@ -6,22 +6,13 @@ import { useRouter } from "next/navigation";
 import { Card, Badge, Button } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { AI_PROVIDERS, getProvidersByKind } from "@/shared/constants/providers";
-
-function getEffectiveStatus(conn) {
-  const isCooldown = Object.entries(conn).some(
-    ([k, v]) => k.startsWith("modelLock_") && v && new Date(v).getTime() > Date.now()
-  );
-  return conn.testStatus === "unavailable" && !isCooldown ? "active" : conn.testStatus;
-}
+import { summarizeProviderConnections } from "@/shared/utils/providerConnectionStats";
 
 function ProviderCard({ provider, kind, connections }) {
   const providerInfo = AI_PROVIDERS[provider.id];
   const isNoAuth = !!providerInfo?.noAuth;
   const providerConns = connections.filter((c) => c.provider === provider.id);
-  const connected = providerConns.filter((c) => { const s = getEffectiveStatus(c); return s === "active" || s === "success"; }).length;
-  const error = providerConns.filter((c) => { const s = getEffectiveStatus(c); return s === "error" || s === "expired" || s === "unavailable"; }).length;
-  const total = providerConns.length;
-  const allDisabled = total > 0 && providerConns.every((c) => c.isActive === false);
+  const { connected, issue: error, total, allDisabled } = summarizeProviderConnections(providerConns);
 
   const renderStatus = () => {
     if (isNoAuth) return <Badge variant="success" size="sm">Ready</Badge>;
