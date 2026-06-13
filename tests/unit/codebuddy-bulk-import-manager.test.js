@@ -60,6 +60,14 @@ describe("CodeBuddyBulkImportManager", () => {
           expiresIn: 86400,
         },
       }),
+      createApiKeyTokens: async ({ tokens, email }) => ({
+        ...tokens,
+        apiKey: `cb-key-${email}`,
+        providerSpecificData: {
+          ...(tokens.providerSpecificData || {}),
+          authKind: "api_key",
+        },
+      }),
       saveConnection: async ({ tokens, email }) => {
         saved.push({ tokens, email });
         return {
@@ -90,6 +98,10 @@ describe("CodeBuddyBulkImportManager", () => {
       "user1@example.com",
       "user2@example.com",
     ]);
+    expect(saved.map((entry) => entry.tokens.apiKey).sort()).toEqual([
+      "cb-key-user1@example.com",
+      "cb-key-user2@example.com",
+    ]);
     expect(finishedJob.accounts.every((account) => account.connectionId)).toBe(true);
   });
 
@@ -119,6 +131,10 @@ describe("CodeBuddyBulkImportManager", () => {
           },
         };
       },
+      createApiKeyTokens: async ({ tokens }) => ({
+        ...tokens,
+        apiKey: "cb-key-user1",
+      }),
       saveConnection: async ({ email }) => ({
         connection: { id: `conn-${email}` },
       }),

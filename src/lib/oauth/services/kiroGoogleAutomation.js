@@ -1007,6 +1007,9 @@ export async function runGoogleAccountAutomation({
   openingMessage = "Opening Google OAuth page",
   successStep = "oauth_success_received",
   successMessage = "OAuth success received",
+  allowProviderRestrictedBypass = false,
+  restrictedBypassStep = "provider_restricted_bypass",
+  restrictedBypassMessage = "Provider restricted page detected; continuing with existing browser session",
   onStep,
 }) {
   const startTime = Date.now();
@@ -1065,6 +1068,18 @@ export async function runGoogleAccountAutomation({
     }
 
     if (includesAny(text, RESTRICTED_ACCOUNT_MARKERS)) {
+      const isCodeBuddyRestrictedPage = isProviderPage(page)
+        && !isGoogleAuthPage(page)
+        && /account access restricted|temporarily restricted/i.test(text);
+      if (allowProviderRestrictedBypass && isCodeBuddyRestrictedPage) {
+        reportStep(restrictedBypassStep, restrictedBypassMessage);
+        return {
+          status: "success",
+          tokens: {},
+          restrictedBypass: true,
+        };
+      }
+
       reportStep("account_restricted", "Account is restricted, suspended, or banned by the provider");
       return {
         status: "failed_restricted",
