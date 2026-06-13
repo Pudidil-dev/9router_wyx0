@@ -98,7 +98,11 @@ export async function getUsageForProvider(connection, proxyOptions = null) {
     case "kiro":
       return await getKiroUsage(accessToken, providerSpecificData, proxyOptions);
     case "codebuddy":
-      return await getCodeBuddyUsage(accessToken, providerSpecificData, proxyOptions);
+      return await getCodeBuddyUsage(
+        accessToken || apiKey,
+        providerSpecificData,
+        proxyOptions,
+      );
     case "qoder":
       return await getQoderUsage(accessToken, proxyOptions);
     case "qwen":
@@ -150,16 +154,30 @@ async function fetchCodeBuddyUid(accessToken, providerSpecificData = {}, proxyOp
 }
 
 async function getCodeBuddyUsage(accessToken, providerSpecificData = {}, proxyOptions = null) {
-  if (!accessToken) {
-    return { plan: "CodeBuddy", message: "CodeBuddy access token not available.", quotas: {} };
+  const webCookie = providerSpecificData?.webCookie;
+  if (!webCookie && !accessToken) {
+    return {
+      plan: "CodeBuddy",
+      message: "CodeBuddy quota credentials are not available. Attach a Quota Cookie from the provider page.",
+      quotas: {},
+    };
   }
 
   try {
-    const { uid, enterpriseId } = await fetchCodeBuddyUid(accessToken, providerSpecificData, proxyOptions);
+    const useWebCookie = !accessToken && Boolean(webCookie);
+    const { uid, enterpriseId } = useWebCookie
+      ? { uid: null, enterpriseId: null }
+      : await fetchCodeBuddyUid(accessToken, providerSpecificData, proxyOptions);
 
     const response = await proxyAwareFetch(CODEBUDDY_CONFIG.usageUrl, {
       method: "POST",
-      headers: buildCodeBuddyUsageHeaders(accessToken, providerSpecificData, uid, enterpriseId),
+      headers: buildCodeBuddyUsageHeaders(
+        accessToken,
+        providerSpecificData,
+        uid,
+        enterpriseId,
+        useWebCookie ? webCookie : null,
+      ),
       body: JSON.stringify(buildCodeBuddyUsageBody()),
     }, proxyOptions);
 
@@ -174,7 +192,9 @@ async function getCodeBuddyUsage(accessToken, providerSpecificData = {}, proxyOp
     if (response.status === 401 || response.status === 403) {
       return {
         plan: "CodeBuddy",
-        message: `CodeBuddy quota: auth failed (${response.status}). uid=${uid ? "yes" : "missing"}.`,
+        message: useWebCookie
+          ? `CodeBuddy quota cookie is expired or unauthorized (${response.status}). Attach a fresh Quota Cookie.`
+          : `CodeBuddy quota API key is unauthorized (${response.status}).`,
         quotas: {},
       };
     }
@@ -248,16 +268,31 @@ function buildCodeBuddyUsageBody() {
   };
 }
 
-function buildCodeBuddyUsageHeaders(accessToken, providerSpecificData = {}, uid = null, enterpriseId = null) {
+function buildCodeBuddyUsageHeaders(
+  accessToken,
+  providerSpecificData = {},
+  uid = null,
+  enterpriseId = null,
+  webCookie = null,
+) {
   const domain = providerSpecificData?.domain || providerSpecificData?.rawAuth?.domain || "www.codebuddy.ai";
 
   const headers = {
-    Authorization: `Bearer ${accessToken}`,
     Accept: "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
     "X-Domain": domain,
   };
+
+  if (webCookie) {
+    headers.Cookie = webCookie;
+    headers.Origin = `https://${domain}`;
+    headers.Referer = `https://${domain}/profile/usage`;
+  } else if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
 
   if (uid) {
     headers["X-User-Id"] = uid;
