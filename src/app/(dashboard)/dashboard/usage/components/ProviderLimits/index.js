@@ -305,7 +305,7 @@ const ACCOUNT_FILTER_OPTIONS = [
   { value: "inactive", label: "Turned off" },
 ];
 const QUOTA_DISPLAY_MODE_OPTIONS = [
-  { value: "single", label: "Satuan", icon: "account_circle" },
+  { value: "single", label: "Single", icon: "account_circle" },
   { value: "bulk", label: "Bulk", icon: "stacks" },
 ];
 const QUOTA_SORT_OPTIONS = [
