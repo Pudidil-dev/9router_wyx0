@@ -9,7 +9,7 @@ const { machineIdSync } = require("node-machine-id");
 // Default configuration
 const DEFAULT_CONFIG = {
   host: "localhost",
-  port: 20128,
+  port: 20129,
   protocol: "http:",
 };
 
@@ -226,7 +226,7 @@ async function getOAuthAuthUrl(provider) {
   // Codex requires fixed port 1455 and path /auth/callback
   const redirectUri = provider === "codex" 
     ? "http://localhost:1455/auth/callback"
-    : "http://localhost:20128/callback";
+    : "http://localhost:20129/callback";
   return makeRequest("GET", `/api/oauth/${provider}/authorize?redirect_uri=${encodeURIComponent(redirectUri)}`);
 }
 
@@ -410,6 +410,14 @@ async function updateSettings(data) {
   return makeRequest("PATCH", "/api/settings", data);
 }
 
+/**
+ * Reset dashboard password to default (clears stored hash server-side)
+ * @returns {Promise<Object>} { success }
+ */
+async function resetPassword() {
+  return makeRequest("POST", "/api/auth/reset-password");
+}
+
 // ============================================================================
 // MODELS API
 // ============================================================================
@@ -528,6 +536,7 @@ module.exports = {
   // Settings
   getSettings,
   updateSettings,
+  resetPassword,
   
   // Tunnel
   getTunnelStatus,

@@ -21,7 +21,7 @@ WORKDIR /app
 LABEL org.opencontainers.image.title="9router"
 
 ENV NODE_ENV=production
-ENV PORT=20128
+ENV PORT=20129
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATA_DIR=/app/data
@@ -29,6 +29,7 @@ ENV DATA_DIR=/app/data
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/custom-server.js ./custom-server.js
 COPY --from=builder /app/open-sse ./open-sse
 # Next file tracing can omit sibling files; MITM runs server.js as a separate process.
 COPY --from=builder /app/src/mitm ./src/mitm
@@ -46,7 +47,7 @@ RUN apk --no-cache upgrade && apk --no-cache add su-exec && \
   printf '#!/bin/sh\nchown -R node:node /app/data /app/data-home 2>/dev/null\nexec su-exec node "$@"\n' > /entrypoint.sh && \
   chmod +x /entrypoint.sh
 
-EXPOSE 20128
+EXPOSE 20129
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["node", "server.js"]
+CMD ["node", "custom-server.js"]

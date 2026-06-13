@@ -382,7 +382,18 @@ function isProviderPage(page) {
     const url = new URL(page.url());
     return /codebuddy\.(ai|cn)$/.test(url.hostname)
       || url.hostname.endsWith(".codebuddy.ai")
-      || url.hostname.endsWith(".codebuddy.cn");
+      || url.hostname.endsWith(".codebuddy.cn")
+      || url.hostname === "qoder.com"
+      || url.hostname.endsWith(".qoder.com");
+  } catch {
+    return false;
+  }
+}
+
+function isQoderPage(page) {
+  try {
+    const url = new URL(page.url());
+    return url.hostname === "qoder.com" || url.hostname.endsWith(".qoder.com");
   } catch {
     return false;
   }
@@ -830,6 +841,98 @@ async function handleCodeBuddyStartedAuthorization(page, reportStep) {
   return true;
 }
 
+async function handleQoderSelectAccounts(page, reportStep) {
+  if (!isQoderPage(page) || isGoogleAuthPage(page)) return false;
+
+  const result = await page.evaluate(() => {
+    const bodyText = document.body?.innerText?.slice(0, 500) || "";
+    const lowered = bodyText.toLowerCase();
+    const successIndicators = [
+      "sign in success",
+      "you're all set",
+      "all set!",
+      "begin your ai coding",
+      "return to qoder",
+      "successfully signed in",
+      "login successful",
+      "authorized successfully",
+    ];
+
+    if (successIndicators.some((indicator) => lowered.includes(indicator))) {
+      return { success: true, clicked: false, method: "success-page" };
+    }
+
+    const clickables = document.querySelectorAll(
+      'button, a, [role="button"], [role="link"], input[type="submit"]'
+    );
+    const actionTexts = [
+      "select",
+      "continue",
+      "authorize",
+      "confirm",
+      "allow",
+      "grant",
+      "approve",
+      "accept",
+      "sign in",
+      "log in",
+      "get started",
+      "proceed",
+      "next",
+      "ok",
+      "pilih",
+      "lanjutkan",
+      "setujui",
+      "izinkan",
+      "konfirmasi",
+    ];
+
+    for (const button of clickables) {
+      if (button.offsetParent === null) continue;
+      const text = (button.textContent || button.value || "").toLowerCase().trim();
+      if (actionTexts.some((keyword) => text.includes(keyword))) {
+        button.click();
+        return { clicked: true, method: `action-text: ${text.slice(0, 50)}` };
+      }
+    }
+
+    const accountElements = document.querySelectorAll(
+      '[class*="account"], [class*="user"], [class*="profile"], [class*="card"], [class*="item"], [class*="option"]'
+    );
+    for (const element of accountElements) {
+      if (element.offsetParent === null) continue;
+      const text = (element.textContent || "").trim();
+      if (text.length > 2 && text.length < 200) {
+        element.click();
+        return { clicked: true, method: `account-card: ${text.slice(0, 50)}` };
+      }
+    }
+
+    for (const button of clickables) {
+      if (button.offsetParent === null) continue;
+      const text = (button.textContent || button.value || "").trim();
+      if (!text) continue;
+      button.click();
+      return { clicked: true, method: `first-visible-btn: ${text.slice(0, 50)}` };
+    }
+
+    return null;
+  }).catch(() => null);
+
+  if (!result) return false;
+  if (result.success) {
+    reportStep("qoder_authorized", "Qoder authorization page reports success");
+    await page.waitForTimeout(1000);
+    return true;
+  }
+  if (result.clicked) {
+    reportStep("qoder_select_accounts", `Qoder selectAccounts: ${result.method}`);
+    await page.waitForTimeout(2000);
+    return true;
+  }
+  return false;
+}
+
 async function handleProviderOnboarding(page, reportStep, serviceLabel) {
   if (!isProviderPage(page) || isGoogleAuthPage(page)) return false;
 
@@ -842,6 +945,11 @@ async function handleProviderOnboarding(page, reportStep, serviceLabel) {
 
   const handledCodeBuddyStarted = await handleCodeBuddyStartedAuthorization(page, reportStep);
   if (handledCodeBuddyStarted) {
+    return true;
+  }
+
+  const handledQoderSelectAccounts = await handleQoderSelectAccounts(page, reportStep);
+  if (handledQoderSelectAccounts) {
     return true;
   }
 
@@ -1178,5 +1286,6 @@ export {
   handleCodeBuddyRegionPage,
   handleProviderOnboarding,
   handleCodeBuddyStartedAuthorization,
+  handleQoderSelectAccounts,
   isProviderPage,
 };

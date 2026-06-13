@@ -145,6 +145,13 @@ export class DefaultExecutor extends BaseExecutor {
       const maxCompletionTokens = Number(transformed.max_completion_tokens);
       return buildCodeBuddyBody(model, transformed, maxTokens, maxCompletionTokens);
     }
+
+    if (transformed && typeof transformed === "object") {
+      if (this.provider === "cerebras" || this.provider === "mistral") {
+        delete transformed.client_metadata;
+      }
+    }
+
     return injectReasoningContent({ provider: this.provider, model, body: transformed });
   }
 
@@ -312,6 +319,12 @@ export class DefaultExecutor extends BaseExecutor {
       const baseUrl = credentials?.providerSpecificData?.baseUrl || "";
       const isOfficialAnthropic = baseUrl === "" || baseUrl.includes("api.anthropic.com");
       if (!isOfficialAnthropic) {
+        // Some third-party Anthropic-compatible gateways require Bearer auth in
+        // addition to x-api-key. Send both (x-api-key already set above) so
+        // gateways that read either header succeed.
+        if (credentials.apiKey && !headers["Authorization"]) {
+          headers["Authorization"] = `Bearer ${credentials.apiKey}`;
+        }
         delete headers["anthropic-dangerous-direct-browser-access"];
         delete headers["Anthropic-Dangerous-Direct-Browser-Access"];
         delete headers["x-app"];

@@ -59,7 +59,7 @@ try { ensureTrayRuntime({ silent: true }); } catch {}
 const APP_NAME = pkg.name; // Use from package.json
 const INSTALL_CMD_LATEST = `npm i -g ${APP_NAME}@latest --prefer-online`;
 
-const DEFAULT_PORT = 20128;
+const DEFAULT_PORT = 20129;
 const DEFAULT_HOST = "0.0.0.0";
 const MAX_PORT_ATTEMPTS = 10;
 // Identifiers for killAllAppProcesses - only kill 9router specifically
@@ -470,9 +470,13 @@ function openBrowser(url) {
   });
 }
 
-// Find standalone server (bundled in bin/app for published package)
+// Find standalone server (bundled in bin/app for published package).
+// Prefer custom-server.js (injects real socket IP) when present.
 const standaloneDir = path.join(__dirname, "app");
-const serverPath = path.join(standaloneDir, "server.js");
+const customServerPath = path.join(standaloneDir, "custom-server.js");
+const serverPath = fs.existsSync(customServerPath)
+  ? customServerPath
+  : path.join(standaloneDir, "server.js");
 
 if (!fs.existsSync(serverPath)) {
   console.error("Error: Standalone build not found.");
