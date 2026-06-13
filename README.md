@@ -4,6 +4,8 @@ WYx0 fork of 9Router focused on provider automation, multi-account workflows, an
 
 This repository is forked from [decolua/9router](https://github.com/decolua/9router). The upstream project remains the base AI router. This fork documents and ships the WYx0 changes on top: Kiro automation, CodeBuddy automation, quota tracker upgrades, and small dashboard quality-of-life updates.
 
+This branch is synced with upstream 9Router `v0.4.80` while preserving WYx0 automation.
+
 ## Focus
 
 - Kiro bulk login automation with browser-assisted Google account flow.
@@ -12,6 +14,19 @@ This repository is forked from [decolua/9router](https://github.com/decolua/9rou
 - Quota Tracker improvements, including provider pagination and single-account/bulk display modes.
 - Provider UX polish: CodeBuddy icon, provider icon fallback, Discord link, connection status filtering, and related dashboard updates.
 - Safer provider workflows: token refresh handling, account fallback, request detail compaction, and focused tests around the new automation paths.
+
+## Upstream v0.4.80 Included
+
+This fork includes upstream 9Router v0.4.80 updates, including:
+
+- Vercel AI Gateway embeddings, images, and credit usage.
+- MiMo Free no-auth provider.
+- Vertex ADC `authorized_user` credential support.
+- Cowork Claude preset-only stdio MCP support.
+- Codex JSON bulk account import.
+- Kiro runtime endpoint, profile ARN auto-resolution, and multi-endpoint failover fixes.
+- Security/auth hardening: DB export/import re-auth, SSRF guard for web fetch, real client IP rate-limiting, and remote default-password guard.
+- Provider/translator fixes for Cerebras, Mistral, SiliconFlow, Gemini, Claude, Anthropic-compatible gateways, GitHub Copilot, Tunnel, CommandCode, and Qoder.
 
 ## What Changed In This Fork
 
@@ -54,16 +69,24 @@ npm run dev
 
 Default local URLs:
 
-- Dashboard: `http://localhost:20128/dashboard`
-- OpenAI-compatible API: `http://localhost:20128/v1`
-- Automation: `http://localhost:20128/dashboard/automation`
-- Quota Tracker: `http://localhost:20128/dashboard/quota`
+- Dashboard: `http://localhost:20129/dashboard`
+- OpenAI-compatible API: `http://localhost:20129/v1`
+- Automation: `http://localhost:20129/dashboard/automation`
+- Quota Tracker: `http://localhost:20129/dashboard/quota`
+
+Fast local WYx0 run, using the built production bundle and project-local data directory:
+
+```bash
+npm run wyx
+```
+
+When running beside an original 9Router instance, prefer `http://127.0.0.1:20129/dashboard` to avoid sharing `localhost` auth cookies.
 
 Production build:
 
 ```bash
 npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+PORT=20129 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20129 npm run start
 ```
 
 ## Verification
@@ -77,19 +100,20 @@ npm run build
 Focused unit tests may be run when the local test setup is available:
 
 ```bash
-npm test -- kiro
-npm test -- codebuddy
+npx vitest run tests/unit/kiro-bulk-import-manager.test.js tests/unit/kiro-bulk-import-routes.test.js
+npx vitest run tests/unit/codebuddy-bulk-import-manager.test.js tests/unit/codebuddy-bulk-import-routes.test.js
+npx vitest run tests/translator/bugs-kiro.test.js tests/translator/format-roundtrip.test.js
 ```
 
 ## PR Scope
 
 This fork's current PR scope is intentionally centered on WYx0 changes:
 
-- Add Kiro automation.
-- Add CodeBuddy automation.
-- Add CodeBuddy quota usage support.
-- Add quota tracker pagination and bulk/single view behavior.
-- Update README and metadata to describe this fork instead of the upstream product pitch.
+- Preserve Kiro automation.
+- Preserve CodeBuddy automation.
+- Preserve CodeBuddy quota usage support.
+- Preserve quota tracker pagination and bulk/single view behavior.
+- Sync upstream 9Router v0.4.80 fixes/features while keeping fork metadata and packaging.
 
 ## Upstream Credit
 

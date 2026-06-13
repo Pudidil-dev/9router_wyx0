@@ -7,6 +7,9 @@ const projectRoot = dirname(fileURLToPath(import.meta.url));
 const tracingRoot = process.env.NEXT_TRACING_ROOT_MODE === "workspace"
   ? join(projectRoot, "..")
   : projectRoot;
+
+// Windows symlink workaround: prevent tracing from escaping project root.
+const windowsSafeTracingRoot = process.platform === "win32" ? projectRoot : tracingRoot;
 const proxyClientMaxBodySize = process.env.NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE || "128mb";
 
 /** @type {import('next').NextConfig} */
@@ -15,9 +18,9 @@ const nextConfig = {
   output: "standalone",
   serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite"],
   turbopack: {
-    root: tracingRoot
+    root: windowsSafeTracingRoot
   },
-  outputFileTracingRoot: tracingRoot,
+  outputFileTracingRoot: windowsSafeTracingRoot,
   outputFileTracingExcludes: {
     "*": ["./gitbook/**/*"]
   },
@@ -38,8 +41,12 @@ const nextConfig = {
         path: false,
       };
     }
-    // Exclude logs, .next, gitbook subapp from watcher
-    config.watchOptions = { ...config.watchOptions, ignored: /[\\/](logs|\.next|gitbook|cli)[\\/]/ };
+    // Exclude logs, .next, gitbook subapp, and Windows system symlinks from watcher
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: /[\\/](logs|\.next|gitbook|cli|Application Data)[\\/]/,
+      followSymlinks: false,
+    };
     return config;
   },
   async rewrites() {

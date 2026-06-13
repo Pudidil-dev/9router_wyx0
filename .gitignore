@@ -76,6 +76,9 @@ scripts/agSniffer/*
 gitbooks/*
 gitbook/README.md
 
+# WYx0 local data (DB, settings, secrets)
+.data-wyx0/
+
 # OmO / OpenCode artifacts
 .OMO_*
 .CLEANUP_REPORT.md
