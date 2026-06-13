@@ -1617,39 +1617,53 @@ async function getQoderUsage(accessToken, proxyOptions = null) {
     if (!body) {
       return { message: "Qoder connected. Usage response was not JSON." };
     }
-    // Quota records live under `quotas`; scalar metadata
-    // (totalUsagePercentage, isQuotaExceeded, expiresAt) are surfaced as
-    // siblings so the dashboard parser doesn't try to render them as rows.
     const userQuota = body.userQuota || {};
     const orgQuota = body.orgResourcePackage || {};
-    // Qoder publishes a single absolute reset timestamp (`expiresAt` in ms);
-    // surface it on every quota record as ISO so the table can render
-    // "resets at" alongside used/total.
     const expiresAtMs = Number.isFinite(Number(body.expiresAt)) && Number(body.expiresAt) > 0
       ? Number(body.expiresAt)
       : null;
-    const resetAt = expiresAtMs ? new Date(expiresAtMs).toISOString() : null;
-    const quotas = {
-      user: {
-        total: Number(userQuota.total) || 0,
-        used: Number(userQuota.used) || 0,
-        remaining: Number(userQuota.remaining) || 0,
-        unit: userQuota.unit || "credits",
+    const resetDate = expiresAtMs ? new Date(expiresAtMs) : null;
+    const resetAt = resetDate
+      && Number.isFinite(resetDate.getTime())
+      && resetDate.getUTCFullYear() < 2100
+      ? resetDate.toISOString()
+      : null;
+
+    const quotas = {};
+    const appendQuota = (key, source) => {
+      const total = Number(source?.total) || 0;
+      if (total <= 0) return;
+
+      quotas[key] = {
+        total,
+        used: Math.max(0, Number(source?.used) || 0),
+        remaining: Math.max(0, Number(source?.remaining) || 0),
+        unit: source?.unit || "credits",
         resetAt,
-      },
-      organization: {
-        total: Number(orgQuota.total) || 0,
-        used: Number(orgQuota.used) || 0,
-        remaining: Number(orgQuota.remaining) || 0,
-        unit: orgQuota.unit || "credits",
-        resetAt,
-      },
+      };
     };
+
+    appendQuota("user", userQuota);
+    appendQuota("organization", orgQuota);
+
+    if (Object.keys(quotas).length === 0) {
+      return {
+        plan: body.userType || "Qoder",
+        message: body.isQuotaExceeded
+          ? "Qoder reports this account quota is exhausted. Chat availability may differ from the quota endpoint."
+          : "Qoder connected, but the quota API did not provide a numeric allocation.",
+        quotas: {},
+        totalUsagePercentage: Number(body.totalUsagePercentage) || 0,
+        isQuotaExceeded: !!body.isQuotaExceeded,
+        expiresAt: resetAt ? expiresAtMs : null,
+      };
+    }
+
     return {
       quotas,
       totalUsagePercentage: Number(body.totalUsagePercentage) || 0,
       isQuotaExceeded: !!body.isQuotaExceeded,
-      expiresAt: expiresAtMs,
+      expiresAt: resetAt ? expiresAtMs : null,
     };
   } catch (error) {
     return { message: `Qoder connected. Unable to fetch usage: ${error.message}` };

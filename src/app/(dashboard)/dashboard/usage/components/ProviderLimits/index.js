@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import QuotaTable from "./QuotaTable";
 import Toggle from "@/shared/components/Toggle";
-import { parseQuotaData, calculatePercentage } from "./utils";
+import { calculatePercentage, parseQuotaData } from "./utils";
+import { collectPaginatedConnections } from "./pagination";
 import Card from "@/shared/components/Card";
 import { EditConnectionModal } from "@/shared/components";
 import {
@@ -173,13 +174,6 @@ function buildLoadingState(connections) {
   return nextLoadingState;
 }
 
-function filterQuotaStateByConnections(state, connections) {
-  const visibleIds = new Set(connections.map((connection) => connection.id));
-  return Object.fromEntries(
-    Object.entries(state).filter(([id]) => visibleIds.has(id)),
-  );
-}
-
 function getConnectionsPageRange(pagination) {
   if (!pagination.total) {
     return { start: 0, end: 0 };
@@ -221,10 +215,6 @@ function getConnectionsEmptyMessage(totals, providerFilter, accountFilter) {
 
 function sortRequestFromExpiringFirst(expiringFirst) {
   return expiringFirst ? "expiring" : "priority";
-}
-
-function getPageSizeLabel(pageSize, isCustomPageSize) {
-  return isCustomPageSize ? `Custom: ${pageSize} / page` : `${pageSize} / page`;
 }
 
 function getConnectionsPaginationSummary(pagination) {
@@ -314,11 +304,13 @@ const QUOTA_SORT_OPTIONS = [
   { value: "remaining-desc", label: "% quota: high to low" },
 ];
 const CONNECTIONS_PAGE_SIZE = 20;
+const BULK_CONNECTIONS_PAGE_SIZE = 500;
 const ACCOUNT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 const ACCOUNT_PAGE_SIZE_MAX = 500;
 
 export default function ProviderLimits() {
   const [connections, setConnections] = useState([]);
+  const [bulkConnections, setBulkConnections] = useState([]);
   const [quotaData, setQuotaData] = useState({});
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
@@ -401,6 +393,47 @@ export default function ProviderLimits() {
     },
     [accountFilter, page, pageSize, providerFilter],
   );
+
+  const fetchBulkConnections = useCallback(async () => {
+    try {
+      const createParams = (targetPage) => {
+        const params = new URLSearchParams({
+          page: String(targetPage),
+          pageSize: String(BULK_CONNECTIONS_PAGE_SIZE),
+          accountStatus: accountFilter,
+          sort: "priority",
+        });
+
+        if (providerFilter !== "all") {
+          params.set("provider", providerFilter);
+        }
+
+        return params;
+      };
+
+      const { connections: allConnections, firstPage: firstData } =
+        await collectPaginatedConnections(async (targetPage) => {
+          const response = await fetch(
+            `/api/providers/client?${createParams(targetPage).toString()}`,
+          );
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch bulk connections page ${targetPage}`,
+            );
+          }
+          return response.json();
+        });
+
+      setBulkConnections(allConnections);
+      setProviderOptions(getProviderOptions(firstData.providerOptions));
+      setTotals(getSafeTotals(firstData.totals, allConnections.length));
+      return allConnections;
+    } catch (error) {
+      console.error("Error fetching bulk connections:", error);
+      setBulkConnections([]);
+      return [];
+    }
+  }, [accountFilter, providerFilter]);
 
   // Fetch quota for a specific connection
   const fetchQuota = useCallback(async (connectionId, provider) => {
@@ -625,15 +658,21 @@ export default function ProviderLimits() {
     setCountdown(60);
 
     try {
-      const visibleConnections = await fetchConnections(page);
+      const visibleConnections =
+        displayMode === "bulk"
+          ? await fetchBulkConnections()
+          : await fetchConnections(page);
 
-      setLoading(buildLoadingState(visibleConnections));
-      setErrors((prev) =>
-        filterQuotaStateByConnections(prev, visibleConnections),
-      );
-      setQuotaData((prev) =>
-        filterQuotaStateByConnections(prev, visibleConnections),
-      );
+      setLoading((prev) => ({
+        ...prev,
+        ...buildLoadingState(visibleConnections),
+      }));
+      setErrors((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          visibleConnections.map((connection) => [connection.id, null]),
+        ),
+      }));
 
       await Promise.all(
         visibleConnections.map((conn) => fetchQuota(conn.id, conn.provider)),
@@ -645,22 +684,35 @@ export default function ProviderLimits() {
     } finally {
       setRefreshingAll(false);
     }
-  }, [refreshingAll, fetchConnections, fetchQuota, page]);
+  }, [
+    refreshingAll,
+    displayMode,
+    fetchBulkConnections,
+    fetchConnections,
+    fetchQuota,
+    page,
+  ]);
 
   useEffect(() => {
     const initializeData = async () => {
       setConnectionsLoading(true);
-      const visibleConnections = await fetchConnections(page);
+      const visibleConnections =
+        displayMode === "bulk"
+          ? await fetchBulkConnections()
+          : await fetchConnections(page);
       setConnectionsLoading(false);
 
       // Always fetch fresh quota on mount, no cache display
-      setLoading(buildLoadingState(visibleConnections));
-      setErrors((prev) =>
-        filterQuotaStateByConnections(prev, visibleConnections),
-      );
-      setQuotaData((prev) =>
-        filterQuotaStateByConnections(prev, visibleConnections),
-      );
+      setLoading((prev) => ({
+        ...prev,
+        ...buildLoadingState(visibleConnections),
+      }));
+      setErrors((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          visibleConnections.map((connection) => [connection.id, null]),
+        ),
+      }));
 
       await Promise.all(
         visibleConnections.map((conn) => fetchQuota(conn.id, conn.provider)),
@@ -669,7 +721,13 @@ export default function ProviderLimits() {
     };
 
     initializeData();
-  }, [fetchConnections, fetchQuota, page]);
+  }, [
+    displayMode,
+    fetchBulkConnections,
+    fetchConnections,
+    fetchQuota,
+    page,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -747,13 +805,21 @@ export default function ProviderLimits() {
   const sortedConnections = useMemo(
     () =>
       sortVisibleConnections(
-        connections,
+        displayMode === "bulk" ? bulkConnections : connections,
         quotaData,
         expiringFirst,
         providerFilter,
         quotaSortMode,
       ),
-    [connections, quotaData, expiringFirst, providerFilter, quotaSortMode],
+    [
+      bulkConnections,
+      connections,
+      displayMode,
+      quotaData,
+      expiringFirst,
+      providerFilter,
+      quotaSortMode,
+    ],
   );
 
   const providerAggregateCards = useMemo(
@@ -790,14 +856,24 @@ export default function ProviderLimits() {
             }),
           ),
         );
-        await reconcileConnectionsPage(fetchConnections, page);
+        if (displayMode === "bulk") {
+          await fetchBulkConnections();
+        } else {
+          await reconcileConnectionsPage(fetchConnections, page);
+        }
       } catch (error) {
         console.error("Error bulk toggling connections:", error);
       } finally {
         setBulkToggling(false);
       }
     },
-    [bulkToggling, fetchConnections, page],
+    [
+      bulkToggling,
+      displayMode,
+      fetchBulkConnections,
+      fetchConnections,
+      page,
+    ],
   );
 
   const handleDisableDepleted = () => {
@@ -825,7 +901,6 @@ export default function ProviderLimits() {
   );
   const connectionsPageSummary = getConnectionsPaginationSummary(pagination);
   const isCustomPageSize = !ACCOUNT_PAGE_SIZE_OPTIONS.includes(pageSize);
-  const pageSizeLabel = getPageSizeLabel(pageSize, isCustomPageSize);
 
   if (!connectionsLoading && !hasEligibleConnections) {
     return (
@@ -1099,7 +1174,7 @@ export default function ProviderLimits() {
       </div>
 
       {/* Provider cards: 2 columns, compact */}
-      {expiringFirst && (
+      {expiringFirst && displayMode === "single" && (
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           Expiring-first currently reorders accounts inside the current page.
           Cross-page ordering still follows backend pagination.
@@ -1256,7 +1331,13 @@ export default function ProviderLimits() {
         })}
       </div>
 
-      <div className="rounded-xl border border-black/10 bg-black/[0.02] px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
+      {displayMode === "bulk" ? (
+        <div className="rounded-xl border border-black/10 bg-black/[0.02] px-3 py-2 text-xs text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
+          Aggregating quota from all {bulkConnections.length} accounts matching
+          the current filters.
+        </div>
+      ) : (
+        <div className="rounded-xl border border-black/10 bg-black/[0.02] px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-text-muted">{connectionsPageSummary}</span>
             <div className="flex flex-wrap items-center gap-2">
@@ -1378,6 +1459,7 @@ export default function ProviderLimits() {
             </div>
           </div>
         </div>
+      )}
 
       <EditConnectionModal
         isOpen={showEditModal}
