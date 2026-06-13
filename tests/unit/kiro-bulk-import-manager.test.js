@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import {
   __test__,
   KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY,
@@ -161,6 +163,50 @@ describe("KiroBulkImportManager", () => {
     expect(
       finishedJob.accounts.some((account) => account.status === "cancelled")
     ).toBe(true);
+  });
+
+  it("marks persisted active snapshots cancelled when no worker is attached", () => {
+    const storageName = `kiro-bulk-import-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const manager = new KiroBulkImportManager({ storageName });
+    const jobId = "job-persisted-active";
+    const jobFile = path.join(manager.storageDir, `${jobId}.json`);
+
+    try {
+      fs.mkdirSync(manager.storageDir, { recursive: true });
+      fs.writeFileSync(jobFile, JSON.stringify({
+        jobId,
+        status: "running",
+        summary: { total: 1, queued: 0, running: 1, success: 0, failed: 0, needs_manual: 0 },
+        concurrency: 1,
+        createdAt: "2026-06-13T00:00:00.000Z",
+        startedAt: "2026-06-13T00:00:01.000Z",
+        finishedAt: null,
+        error: null,
+        accounts: [{
+          line: 1,
+          email: "user@gmail.com",
+          status: "running",
+          error: null,
+          connectionId: null,
+          workerId: 1,
+          currentStep: "opening_google",
+          updatedAt: "2026-06-13T00:00:01.000Z",
+          logs: [],
+        }],
+        activity: [],
+        preview: null,
+      }), "utf8");
+
+      const cancelled = manager.cancelJob(jobId);
+      const persisted = JSON.parse(fs.readFileSync(jobFile, "utf8"));
+
+      expect(cancelled.status).toBe("cancelled");
+      expect(cancelled.accounts[0].status).toBe("cancelled");
+      expect(persisted.status).toBe("cancelled");
+      expect(persisted.accounts[0].currentStep).toBe("cancelled");
+    } finally {
+      fs.rmSync(manager.storageDir, { recursive: true, force: true });
+    }
   });
 
   it("opens a manual session for a blocked worker", async () => {

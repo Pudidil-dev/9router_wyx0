@@ -221,6 +221,34 @@ export function buildLookupResponse(job, extras = {}) {
   };
 }
 
+function cancelPersistedActiveJob(job) {
+  if (!job || !ACTIVE_JOB_STATUSES.has(job.status)) return job || null;
+
+  const cancelledAt = nowIso();
+  const accounts = (job.accounts || []).map((account) => {
+    if (!ACTIVE_JOB_STATUSES.has(account.status)) return account;
+    return {
+      ...account,
+      status: "cancelled",
+      error: account.error || "Job cancelled",
+      currentStep: "cancelled",
+      updatedAt: cancelledAt,
+      logs: [
+        ...(account.logs || []),
+        createLogEntry("cancelled", "Job cancelled after the worker session was no longer active"),
+      ].slice(-MAX_ACCOUNT_LOG_ENTRIES),
+      manualSessionAvailable: false,
+    };
+  });
+
+  return sanitizeJob({
+    ...job,
+    status: "cancelled",
+    finishedAt: job.finishedAt || cancelledAt,
+    accounts,
+  });
+}
+
 async function defaultBrowserLauncher() {
   const { chromium } = await import("playwright");
 
@@ -390,7 +418,15 @@ export class KiroBulkImportManager {
 
   cancelJob(jobId) {
     const job = this.jobs.get(jobId);
-    if (!job) return readJsonFile(getJobFile(jobId, this.storageDir));
+    if (!job) {
+      const jobFile = getJobFile(jobId, this.storageDir);
+      const persistedJob = readJsonFile(jobFile);
+      const cancelledJob = cancelPersistedActiveJob(persistedJob);
+      if (cancelledJob && cancelledJob !== persistedJob) {
+        writeJsonFile(jobFile, cancelledJob);
+      }
+      return cancelledJob;
+    }
 
     job.cancelRequested = true;
     if (job.status === "queued") {

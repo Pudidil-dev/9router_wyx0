@@ -43,15 +43,53 @@ AccountStatusBadge.propTypes = {
   status: PropTypes.string,
 };
 
+function getResponseHeader(response, name) {
+  return response?.headers?.get?.(name) || "";
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildNonJsonError(response, text, fallbackMessage) {
+  const status = response?.status;
+  const statusText = response?.statusText ? ` ${response.statusText}` : "";
+  const prefix = status ? `${fallbackMessage} (${status}${statusText})` : fallbackMessage;
+  const detail = stripHtml(text).slice(0, 180);
+  return detail ? `${prefix}: ${detail}` : prefix;
+}
+
+async function readBulkApiResponse(response, fallbackMessage = "Bulk request failed") {
+  const text = await response.text();
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    const contentType = getResponseHeader(response, "content-type");
+    const isHtml = contentType.includes("text/html") || text.trim().startsWith("<");
+    return {
+      error: isHtml
+        ? buildNonJsonError(response, text, fallbackMessage)
+        : `${fallbackMessage}: server returned malformed JSON`,
+    };
+  }
+}
+
 async function fetchJob(provider, jobId) {
-  const res = await fetch(`/api/oauth/${provider}/bulk-import/${jobId}`, { cache: "no-store" });
-  const data = await res.json();
+  const res = await fetch(`/api/oauth/${provider}/bulk-import/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+  const data = await readBulkApiResponse(res, "Failed to load bulk job");
   return { res, data };
 }
 
 async function fetchLatestJob(provider, scope = "recoverable") {
   const res = await fetch(`/api/oauth/${provider}/bulk-import/latest?scope=${encodeURIComponent(scope)}`, { cache: "no-store" });
-  const data = await res.json();
+  const data = await readBulkApiResponse(res, "Failed to load latest bulk job");
   return { res, data };
 }
 
@@ -188,7 +226,7 @@ export default function BulkAccountAutomationModal({
           concurrency: Number.parseInt(concurrency, 10) || DEFAULT_CONCURRENCY,
         }),
       });
-      const data = await res.json();
+      const data = await readBulkApiResponse(res, "Bulk account import failed");
       if (!res.ok) {
         const invalidHint = Array.isArray(data.invalidLines) && data.invalidLines.length > 0
           ? ` Invalid lines: ${data.invalidLines.join(", ")}`
@@ -212,11 +250,17 @@ export default function BulkAccountAutomationModal({
     if (!activeJob?.jobId) return;
 
     try {
-      const res = await fetch(`/api/oauth/${provider}/bulk-import/${activeJob.jobId}/cancel`, {
+      const res = await fetch(`/api/oauth/${provider}/bulk-import/${encodeURIComponent(activeJob.jobId)}/cancel`, {
         method: "POST",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to cancel job");
+      const data = await readBulkApiResponse(res, "Failed to cancel job");
+      if (!res.ok) {
+        if (res.status === 404 && typeof window !== "undefined") {
+          window.localStorage.removeItem(storageKey);
+        }
+        if (res.status === 404) setActiveJob(null);
+        throw new Error(data.error || "Failed to cancel job");
+      }
       if (data.job) setActiveJob(data.job);
     } catch (err) {
       setError(err.message);
@@ -227,10 +271,10 @@ export default function BulkAccountAutomationModal({
     if (!activeJob?.jobId || !workerId) return;
 
     try {
-      const res = await fetch(`/api/oauth/${provider}/bulk-import/${activeJob.jobId}/manual/${workerId}`, {
+      const res = await fetch(`/api/oauth/${provider}/bulk-import/${encodeURIComponent(activeJob.jobId)}/manual/${encodeURIComponent(workerId)}`, {
         method: "POST",
       });
-      const data = await res.json();
+      const data = await readBulkApiResponse(res, "Failed to open manual session");
       if (!res.ok) throw new Error(data.error || "Failed to open manual session");
       if (data.job) setActiveJob(data.job);
     } catch (err) {
