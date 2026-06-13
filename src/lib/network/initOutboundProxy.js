@@ -1,12 +1,16 @@
-import { getSettings } from "@/lib/localDb";
-import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
-
 let initialized = false;
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build"
+  || process.env.NEXT_PHASE === "phase-export"
+  || process.env.NEXT_PHASE === "phase-static";
 
 export async function ensureOutboundProxyInitialized() {
-  if (initialized) return true;
+  if (isBuildPhase || initialized) return initialized;
 
   try {
+    const [{ getSettings }, { applyOutboundProxyEnv }] = await Promise.all([
+      import("../localDb.js"),
+      import("./outboundProxy.js"),
+    ]);
     const settings = await getSettings();
     applyOutboundProxyEnv(settings);
     initialized = true;
@@ -18,8 +22,10 @@ export async function ensureOutboundProxyInitialized() {
 }
 
 // Defer init so HTTP server accepts connections first
-setImmediate(() => {
-  ensureOutboundProxyInitialized().catch(console.log);
-});
+if (!isBuildPhase) {
+  setImmediate(() => {
+    ensureOutboundProxyInitialized().catch(console.log);
+  });
+}
 
 export default ensureOutboundProxyInitialized;

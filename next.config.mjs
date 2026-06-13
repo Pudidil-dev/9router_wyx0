@@ -8,6 +8,17 @@ const tracingRoot = process.env.NEXT_TRACING_ROOT_MODE === "workspace"
   ? join(projectRoot, "..")
   : projectRoot;
 const proxyClientMaxBodySize = process.env.NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE || "128mb";
+const toTraceExcludeGlob = (value) => value ? `${value.replace(/\\/g, "/")}/**/*` : null;
+const outputFileTracingExcludes = [
+  "./gitbook/**/*",
+  ...(process.platform === "win32"
+    ? [
+        toTraceExcludeGlob(process.env.USERPROFILE),
+        toTraceExcludeGlob(process.env.APPDATA),
+        toTraceExcludeGlob(process.env.LOCALAPPDATA),
+      ].filter(Boolean)
+    : [])
+];
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -19,7 +30,7 @@ const nextConfig = {
   },
   outputFileTracingRoot: tracingRoot,
   outputFileTracingExcludes: {
-    "*": ["./gitbook/**/*"]
+    "*": outputFileTracingExcludes
   },
   images: {
     unoptimized: true
