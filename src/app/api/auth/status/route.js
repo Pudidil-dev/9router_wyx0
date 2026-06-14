@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getSettings } from "@/lib/localDb";
 import { isOidcConfigured } from "@/lib/auth/oidc";
-import { getDashboardAuthSession } from "@/lib/auth/dashboardSession";
+import { AUTH_TOKEN_COOKIE, getDashboardAuthSession } from "@/lib/auth/dashboardSession";
 
 export async function GET() {
   try {
     const settings = await getSettings();
     const cookieStore = await cookies();
-    const session = await getDashboardAuthSession(cookieStore.get("auth_token")?.value);
+    const session = await getDashboardAuthSession(cookieStore.get(AUTH_TOKEN_COOKIE)?.value);
     const requireLogin = settings.requireLogin !== false;
     const authMode = settings.authMode || "password";
     const oidcName = String(session?.oidcName || "").trim();

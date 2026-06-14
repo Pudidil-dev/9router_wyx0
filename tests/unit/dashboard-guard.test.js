@@ -30,6 +30,7 @@ vi.mock("@/shared/utils/machineId", () => ({
 }));
 
 vi.mock("@/lib/auth/dashboardSession", () => ({
+  AUTH_TOKEN_COOKIE: "auth_token",
   verifyDashboardAuthToken: mocks.verifyDashboardAuthToken,
 }));
 

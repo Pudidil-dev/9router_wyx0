@@ -7,6 +7,7 @@ import { DATA_DIR } from "@/lib/dataDir";
 import { getSettings } from "@/lib/localDb";
 
 const DEFAULT_PASSWORD = "123456";
+export const AUTH_TOKEN_COOKIE = process.env.AUTH_TOKEN_COOKIE_NAME || "auth_token";
 
 function loadJwtSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
@@ -59,7 +60,7 @@ export async function getDashboardAuthSession(token) {
 
 export async function setDashboardAuthCookie(cookieStore, request, claims = {}) {
   const token = await createDashboardAuthToken(claims);
-  cookieStore.set("auth_token", token, {
+  cookieStore.set(AUTH_TOKEN_COOKIE, token, {
     httpOnly: true,
     secure: shouldUseSecureCookie(request),
     sameSite: "lax",
@@ -68,7 +69,7 @@ export async function setDashboardAuthCookie(cookieStore, request, claims = {}) 
 }
 
 export function clearDashboardAuthCookie(cookieStore) {
-  cookieStore.delete("auth_token");
+  cookieStore.delete(AUTH_TOKEN_COOKIE);
 }
 
 // Verify the current dashboard password (re-auth for sensitive actions).

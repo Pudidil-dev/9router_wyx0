@@ -3,9 +3,9 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { getSettings } from "@/lib/localDb";
 
 export const OIDC_COOKIE_NAMES = {
-  state: "oidc_state",
-  nonce: "oidc_nonce",
-  verifier: "oidc_code_verifier",
+  state: process.env.OIDC_STATE_COOKIE_NAME || "oidc_state",
+  nonce: process.env.OIDC_NONCE_COOKIE_NAME || "oidc_nonce",
+  verifier: process.env.OIDC_VERIFIER_COOKIE_NAME || "oidc_code_verifier",
 };
 
 const DEFAULT_SCOPES = "openid profile email";

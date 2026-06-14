@@ -96,6 +96,21 @@ npm run wyx
 ```
 
 When running beside an original 9Router instance, prefer `http://127.0.0.1:20129/dashboard` to avoid sharing `localhost` auth cookies.
+WYx0 also supports isolated dashboard cookies via `.env` so both apps can stay logged in even when opened on the same hostname:
+
+```env
+AUTH_TOKEN_COOKIE_NAME=wyx_auth_token
+OIDC_STATE_COOKIE_NAME=wyx_oidc_state
+OIDC_NONCE_COOKIE_NAME=wyx_oidc_nonce
+OIDC_VERIFIER_COOKIE_NAME=wyx_oidc_code_verifier
+```
+
+After changing these values for the fast WYx0 runtime, rebuild the CLI/app bundle before starting it again:
+
+```bash
+node cli/scripts/build-cli.js
+npm run wyx
+```
 
 Production build:
 

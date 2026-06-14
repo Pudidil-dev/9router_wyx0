@@ -5,6 +5,7 @@ import {
   fetchOidcDiscovery,
   getOidcRuntimeConfig,
   getPublicOrigin,
+  OIDC_COOKIE_NAMES,
   pickOidcDisplayName,
   pickOidcEmail,
   verifyOidcIdToken,
@@ -12,9 +13,9 @@ import {
 import { setDashboardAuthCookie } from "@/lib/auth/dashboardSession";
 
 function clearOidcCookies(cookieStore) {
-  cookieStore.delete("oidc_state");
-  cookieStore.delete("oidc_nonce");
-  cookieStore.delete("oidc_code_verifier");
+  cookieStore.delete(OIDC_COOKIE_NAMES.state);
+  cookieStore.delete(OIDC_COOKIE_NAMES.nonce);
+  cookieStore.delete(OIDC_COOKIE_NAMES.verifier);
 }
 
 export async function GET(request) {
@@ -31,9 +32,9 @@ export async function GET(request) {
   }
 
   const cookieStore = await cookies();
-  const storedState = cookieStore.get("oidc_state")?.value;
-  const storedNonce = cookieStore.get("oidc_nonce")?.value;
-  const codeVerifier = cookieStore.get("oidc_code_verifier")?.value;
+  const storedState = cookieStore.get(OIDC_COOKIE_NAMES.state)?.value;
+  const storedNonce = cookieStore.get(OIDC_COOKIE_NAMES.nonce)?.value;
+  const codeVerifier = cookieStore.get(OIDC_COOKIE_NAMES.verifier)?.value;
 
   if (!storedState || !storedNonce || !codeVerifier || storedState !== state) {
     clearOidcCookies(cookieStore);
