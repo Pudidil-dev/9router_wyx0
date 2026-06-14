@@ -61,9 +61,17 @@ If the cookie is missing or expired, the connection can still chat, but quota tr
 
 ## Local Development
 
+For the fastest development loop, use Turbopack:
+
 ```bash
 cp .env.example .env
 npm install
+npm run dev:turbo
+```
+
+Use the webpack dev server only when debugging Turbopack-specific issues:
+
+```bash
 npm run dev
 ```
 
@@ -74,7 +82,14 @@ Default local URLs:
 - Automation: `http://localhost:20129/dashboard/automation`
 - Quota Tracker: `http://localhost:20129/dashboard/quota`
 
-Fast local WYx0 run, using the built production bundle and project-local data directory:
+Fast production-like WYx0 run, using the built CLI/app bundle and project-local data directory:
+
+```bash
+node cli/scripts/build-cli.js
+npm run wyx
+```
+
+If the CLI/app bundle is already current, start WYx0 directly:
 
 ```bash
 npm run wyx

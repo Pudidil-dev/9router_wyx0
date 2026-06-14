@@ -20,9 +20,11 @@
 
 Use Node 18 or newer.
 
-- `npm run dev` starts the local dashboard and API on `http://localhost:20129`.
+- `npm run dev:turbo` starts the fastest local development server on `http://localhost:20129`.
+- `npm run dev` starts the webpack development server for compatibility and Turbopack debugging.
 - `npm run build` creates a production build using `scripts/build-next-safe.mjs`.
 - `npm run start` runs the standalone production server.
+- `node cli/scripts/build-cli.js` builds the CLI/app bundle used by the fast WYx0 runtime.
 - `npm run wyx` starts the fast WYx0 local runtime against the project data directory.
 - `npm run cli:pack` builds the bundled CLI package from `cli/`.
 - `cd tests && npm test` runs the Vitest suite defined in `tests/package.json`.
