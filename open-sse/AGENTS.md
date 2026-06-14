@@ -17,6 +17,7 @@
 
 - Preserve streaming frame order, terminal events, usage reporting, and abort behavior.
 - Keep provider-specific behavior in executors or provider-local handlers; keep shared orchestration provider-neutral.
+- 1min AI bulk imports save the logged-in web session token and team ID; the executor must call the web unified-chat endpoint with `X-Auth-Token`, not generate or require an API key.
 - Treat status-based retry, credential refresh, cooldown, and account fallback rules as behavioral contracts.
 - Add provider/model declarations consistently across config, executor selection, translator registration, and tests.
 - Never log authorization headers, tokens, cookies, or complete sensitive request bodies by default.

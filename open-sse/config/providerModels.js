@@ -184,6 +184,15 @@ export const PROVIDER_MODELS = {
     { id: "kimi-k2.6", name: "Kimi-K2.6", maxInputTokens: 256000, maxOutputTokens: 32000 },
     { id: "kimi-k2.5", name: "Kimi-K2.5", maxInputTokens: 164000, maxOutputTokens: 32000 },
   ],
+  "1min": [
+    { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+    { id: "gpt-4o", name: "GPT-4o" },
+    { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
+    { id: "gpt-4", name: "GPT-4" },
+    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
+    { id: "o1-mini", name: "O1 Mini" },
+    { id: "o1-preview", name: "O1 Preview" },
+  ],
   cu: [  // Cursor IDE
     { id: "default", name: "Auto (Server Picks)" },
     { id: "claude-4.5-opus-high-thinking", name: "Claude 4.5 Opus High Thinking" },
@@ -936,6 +945,7 @@ const OAUTH_ALIASES = {
   opencode: "oc",
   qoder: "qd",
   codebuddy: "cb",
+  "1min-ai": "1min",
   "mimo-free": "mmf",
   vertex: "vertex",
   "vertex-partner": "vertex-partner",

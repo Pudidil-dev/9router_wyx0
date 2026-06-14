@@ -307,6 +307,42 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
   );
 }
 
+function OneMinAutomationPanel({ onRefresh }) {
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => setIsBulkOpen(true)}
+          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
+            <span className="material-symbols-outlined text-[20px] text-primary">group_add</span>
+            Auto Login Bulk
+          </span>
+          <span className="text-xs leading-relaxed text-text-muted">
+            Run simple 1min AI Google login and create API keys automatically.
+          </span>
+        </button>
+      </div>
+      <BulkAccountAutomationModal
+        isOpen={isBulkOpen}
+        provider="1min-ai"
+        title="1min AI Bulk Login"
+        serviceName="1min AI"
+        defaultConcurrency={1}
+        maxConcurrency={1}
+        accountFormat="gmail|password"
+        introText="1min AI uses a lightweight one-worker browser login: close the intro tour, click Log in with Google, then create an API key."
+        onSuccess={onRefresh}
+        onClose={() => setIsBulkOpen(false)}
+      />
+    </>
+  );
+}
+
 const AUTOMATION_PROVIDERS = [
   {
     id: "kiro",
@@ -331,6 +367,14 @@ const AUTOMATION_PROVIDERS = [
     description: "Bulk Google SSO automation and browser device login polling.",
     supportedModes: ["bulk-account", "device-oauth"],
     component: QoderAutomationPanel,
+  },
+  {
+    id: "1min-ai",
+    label: "1min AI",
+    icon: "bolt",
+    description: "Simple Google login automation with automatic API key creation.",
+    supportedModes: ["bulk-account"],
+    component: OneMinAutomationPanel,
   },
 ];
 

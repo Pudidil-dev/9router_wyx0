@@ -16,12 +16,14 @@
 - Keep server-only credentials and filesystem access out of client components.
 - Preserve the boundary between application routes in `src/app`, application orchestration in `src/sse`, and provider-neutral runtime behavior in `open-sse`.
 - Reuse shared constants, stores, hooks, and UI components instead of duplicating cross-dashboard behavior.
+- Shared bulk automation components may expose provider-specific copy and worker limits; keep heavyweight browser providers conservative by default.
 - Document durable changes to source ownership or runtime flow in this file and, when architectural, in `docs/ARCHITECTURE.md`.
 
 ## Work Guidance
 
 - Follow existing App Router and ES module patterns.
 - Keep provider-specific authentication and service logic under the closest provider or OAuth domain.
+- Keep dashboard automation UI in `app/` thin and delegate browser-session, polling, and provider-specific login logic to `lib/oauth/services/*BulkImportManager`.
 - Check imports across `@/` aliases and relative `open-sse` boundaries when moving modules.
 
 ## Verification

@@ -22,6 +22,7 @@
 
 - Run the narrowest relevant test file during development, then broaden to the owning suite.
 - Mock external services at stable module or network boundaries.
+- For provider automation, mirror the existing route and bulk-manager test pattern so job lifecycle, invalid input handling, and saved-connection behavior stay covered offline.
 - Keep live tests gated by an explicit environment variable and tolerant only of genuine credential or quota failures.
 
 ## Verification

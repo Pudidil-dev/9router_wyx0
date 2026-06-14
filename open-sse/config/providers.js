@@ -105,6 +105,13 @@ export const PROVIDERS = {
     timeoutMs: 120000,
     stallTimeoutMs: 120000,
   },
+  "1min-ai": {
+    baseUrl: "https://api.1min.ai/api",
+    format: "openai",
+    headers: {},
+    timeoutMs: 90000,
+    stallTimeoutMs: 90000,
+  },
   antigravity: {
     baseUrls: [
       "https://daily-cloudcode-pa.googleapis.com",

@@ -22,6 +22,7 @@
 
 - Follow nearby route and component patterns before adding abstractions.
 - Reuse shared dashboard components and existing provider metadata.
+- Keep `api/oauth/*/bulk-import` handlers thin: validate input, delegate to bulk import managers, and preserve the shared job JSON shape used by `BulkAccountAutomationModal`.
 - For user-facing changes, verify loading, empty, error, disabled, and narrow-screen states.
 
 ## Verification

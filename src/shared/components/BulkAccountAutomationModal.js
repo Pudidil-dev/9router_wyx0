@@ -100,11 +100,15 @@ export default function BulkAccountAutomationModal({
   provider,
   title,
   serviceName,
+  defaultConcurrency = DEFAULT_CONCURRENCY,
+  maxConcurrency = 8,
+  accountFormat = "gmail|password",
+  introText,
 }) {
   const storageKey = `${provider}-bulk-import-active-job`;
   const completedRefreshJobsRef = useRef(new Set());
   const [bulkText, setBulkText] = useState("");
-  const [concurrency, setConcurrency] = useState(String(DEFAULT_CONCURRENCY));
+  const [concurrency, setConcurrency] = useState(String(defaultConcurrency));
   const [activeJob, setActiveJob] = useState(null);
   const [error, setError] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -129,7 +133,7 @@ export default function BulkAccountAutomationModal({
 
   const resetState = useCallback(() => {
     setBulkText("");
-    setConcurrency(String(DEFAULT_CONCURRENCY));
+    setConcurrency(String(defaultConcurrency));
     setActiveJob(null);
     setError(null);
     setImporting(false);
@@ -137,7 +141,7 @@ export default function BulkAccountAutomationModal({
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(storageKey);
     }
-  }, [storageKey]);
+  }, [defaultConcurrency, storageKey]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -223,7 +227,7 @@ export default function BulkAccountAutomationModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accounts: lines,
-          concurrency: Number.parseInt(concurrency, 10) || DEFAULT_CONCURRENCY,
+          concurrency: Number.parseInt(concurrency, 10) || defaultConcurrency,
         }),
       });
       const data = await readBulkApiResponse(res, "Bulk account import failed");
@@ -300,7 +304,7 @@ export default function BulkAccountAutomationModal({
           <>
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
               <p className="text-sm text-blue-800 dark:text-blue-200">
-                Bulk GSuite login runs browser workers in the background. Use one account per line in gmail|password format. Accounts that hit CAPTCHA, 2FA, or recovery prompts move to manual assist.
+                {introText || `Bulk login runs browser workers in the background. Use one account per line in ${accountFormat} format. Accounts that hit CAPTCHA, 2FA, or recovery prompts move to manual assist.`}
               </p>
             </div>
 
@@ -311,11 +315,11 @@ export default function BulkAccountAutomationModal({
               <textarea
                 value={bulkText}
                 onChange={(event) => setBulkText(event.target.value)}
-                placeholder={"gmail1@example.com|password1\ngmail2@example.com|password2"}
+                placeholder={accountFormat === "email|password" ? "user1@example.com|password1\nuser2@example.com|password2" : "gmail1@example.com|password1\ngmail2@example.com|password2"}
                 className="min-h-[180px] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <p className="mt-1 text-xs text-text-muted">
-                One account per line in the format gmail|password.
+                One account per line in the format {accountFormat}.
               </p>
             </div>
 
@@ -324,13 +328,13 @@ export default function BulkAccountAutomationModal({
               <Input
                 type="number"
                 min="1"
-                max="8"
+                max={maxConcurrency}
                 value={concurrency}
                 onChange={(event) => setConcurrency(event.target.value)}
-                placeholder="4"
+                placeholder={String(defaultConcurrency)}
               />
               <p className="mt-1 text-xs text-text-muted">
-                Default 4. Allowed range: 1 to 8 workers.
+                Default {defaultConcurrency}. Allowed range: 1 to {maxConcurrency} worker{maxConcurrency === 1 ? "" : "s"}.
               </p>
             </div>
           </>
@@ -549,4 +553,8 @@ BulkAccountAutomationModal.propTypes = {
   provider: PropTypes.string.isRequired,
   title: PropTypes.string.isRequired,
   serviceName: PropTypes.string.isRequired,
+  defaultConcurrency: PropTypes.number,
+  maxConcurrency: PropTypes.number,
+  accountFormat: PropTypes.string,
+  introText: PropTypes.string,
 };
