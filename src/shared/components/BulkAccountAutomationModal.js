@@ -7,6 +7,7 @@ import Badge from "./Badge";
 import Button from "./Button";
 import Input from "./Input";
 import Modal from "./Modal";
+import { useNotificationStore } from "@/store/notificationStore";
 
 const DEFAULT_CONCURRENCY = 4;
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running", "needs_manual"]);
@@ -29,6 +30,36 @@ function getStatusVariant(status) {
   if (status === "running" || status === "queued") return "info";
   if (status === "cancelled") return "default";
   return "danger";
+}
+
+function getJobOutcome(job) {
+  const summary = job?.summary || {};
+  const successCount = Number(summary.success || 0);
+  const failedCount = Number(summary.failed || 0)
+    + Number(summary.failed_invalid_credentials || 0)
+    + Number(summary.failed_exchange || 0)
+    + Number(summary.failed_timeout || 0);
+  const manualCount = Number(summary.needs_manual || 0);
+  const cancelledCount = Number(summary.cancelled || 0);
+  return { successCount, failedCount, manualCount, cancelledCount };
+}
+
+function notifyJobFinished(notify, serviceName, job) {
+  const { successCount, failedCount, manualCount, cancelledCount } = getJobOutcome(job);
+  const details = [
+    `Saved ${successCount} account${successCount === 1 ? "" : "s"}`,
+    failedCount ? `failed ${failedCount}` : null,
+    manualCount ? `manual ${manualCount}` : null,
+    cancelledCount ? `cancelled ${cancelledCount}` : null,
+  ].filter(Boolean).join(", ");
+
+  if (job?.status === "completed") {
+    notify.success(`${serviceName} bulk import completed. ${details}.`, "Bulk Import Done");
+  } else if (job?.status === "cancelled") {
+    notify.warning(`${serviceName} bulk import cancelled. ${details}.`, "Bulk Import Cancelled");
+  } else {
+    notify.error(`${serviceName} bulk import failed. ${details}.`, "Bulk Import Failed");
+  }
 }
 
 function AccountStatusBadge({ status }) {
@@ -106,6 +137,7 @@ export default function BulkAccountAutomationModal({
   introText,
 }) {
   const storageKey = `${provider}-bulk-import-active-job`;
+  const notify = useNotificationStore();
   const completedRefreshJobsRef = useRef(new Set());
   const [bulkText, setBulkText] = useState("");
   const [concurrency, setConcurrency] = useState(String(defaultConcurrency));
@@ -195,6 +227,7 @@ export default function BulkAccountAutomationModal({
           }
           if (TERMINAL_JOB_STATUSES.has(data.job.status) && !completedRefreshJobsRef.current.has(data.job.jobId)) {
             completedRefreshJobsRef.current.add(data.job.jobId);
+            notifyJobFinished(notify, serviceName, data.job);
             onSuccess?.();
           }
         }
@@ -204,7 +237,7 @@ export default function BulkAccountAutomationModal({
     }, 2000);
 
     return () => window.clearInterval(interval);
-  }, [activeJob?.jobId, finishedJob, isOpen, onSuccess, provider, storageKey]);
+  }, [activeJob?.jobId, finishedJob, isOpen, notify, onSuccess, provider, serviceName, storageKey]);
 
   const handleStartBulk = async () => {
     const lines = bulkText

@@ -120,13 +120,27 @@ export default function Sidebar({ onClose }) {
         {/* Logo */}
         <div className="px-6 py-4 flex flex-col gap-2">
           <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex items-center justify-center size-9 rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-app-warm">
+            <div className="flex items-center justify-center size-9 rounded-[10px] bg-linear-to-br from-brand-500 to-brand-700 shadow-app-warm">
               <span className="material-symbols-outlined text-white text-[20px]">hub</span>
             </div>
             <div className="flex flex-col">
               <h1 className="text-lg font-semibold tracking-tight text-text-main">
                 {APP_CONFIG.name}
               </h1>
+              {APP_CONFIG.subtitle && (
+                <span
+                  className="text-xs font-semibold"
+                  style={{
+                    backgroundImage: "linear-gradient(90deg, #06b6d4, #3b82f6, #8b5cf6)",
+                    backgroundClip: "text",
+                    WebkitBackgroundClip: "text",
+                    color: "#3b82f6",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  {APP_CONFIG.subtitle}
+                </span>
+              )}
               <span className="text-xs text-text-muted">v{APP_CONFIG.version}</span>
             </div>
           </Link>

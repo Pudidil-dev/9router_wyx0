@@ -145,6 +145,18 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-primary mb-2">9Router</h1>
+          <h2
+            className="text-xl font-semibold"
+            style={{
+              backgroundImage: "linear-gradient(90deg, #06b6d4, #3b82f6, #8b5cf6)",
+              backgroundClip: "text",
+              WebkitBackgroundClip: "text",
+              color: "#3b82f6",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            Wyx Version
+          </h2>
           <p className="text-text-muted">
             {authMode === "oidc" && oidcConfigured
               ? "Sign in with your OIDC provider to access the dashboard"

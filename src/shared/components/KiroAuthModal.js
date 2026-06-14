@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
+import { useNotificationStore } from "@/store/notificationStore";
 
 const DEFAULT_CONCURRENCY = 4;
 const BULK_JOB_STORAGE_KEY = "kiro-bulk-import-active-job";
@@ -15,6 +16,36 @@ function isJobTerminal(status) {
 
 function isJobActive(status) {
   return ["queued", "running", "needs_manual"].includes(status);
+}
+
+function getJobOutcome(job) {
+  const summary = job?.summary || {};
+  const successCount = Number(summary.success || 0);
+  const failedCount = Number(summary.failed || 0)
+    + Number(summary.failed_invalid_credentials || 0)
+    + Number(summary.failed_exchange || 0)
+    + Number(summary.failed_timeout || 0);
+  const manualCount = Number(summary.needs_manual || 0);
+  const cancelledCount = Number(summary.cancelled || 0);
+  return { successCount, failedCount, manualCount, cancelledCount };
+}
+
+function notifyJobFinished(notify, job) {
+  const { successCount, failedCount, manualCount, cancelledCount } = getJobOutcome(job);
+  const details = [
+    `Saved ${successCount} account${successCount === 1 ? "" : "s"}`,
+    failedCount ? `failed ${failedCount}` : null,
+    manualCount ? `manual ${manualCount}` : null,
+    cancelledCount ? `cancelled ${cancelledCount}` : null,
+  ].filter(Boolean).join(", ");
+
+  if (job?.status === "completed") {
+    notify.success(`Kiro bulk import completed. ${details}.`, "Bulk Import Done");
+  } else if (job?.status === "cancelled") {
+    notify.warning(`Kiro bulk import cancelled. ${details}.`, "Bulk Import Cancelled");
+  } else {
+    notify.error(`Kiro bulk import failed. ${details}.`, "Bulk Import Failed");
+  }
 }
 
 function formatStepLabel(step) {
@@ -115,6 +146,7 @@ export default function KiroAuthModal({
   initialFlowKey,
   onBulkJobChange,
 }) {
+  const notify = useNotificationStore();
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [idcStartUrl, setIdcStartUrl] = useState("");
   const [idcRegion, setIdcRegion] = useState("us-east-1");
@@ -293,12 +325,14 @@ export default function KiroAuthModal({
       return;
     }
 
-    if ((activeJob.summary?.success || 0) <= 0) return;
     if (completedRefreshJobsRef.current.has(activeJob.jobId)) return;
 
     completedRefreshJobsRef.current.add(activeJob.jobId);
-    onImportSuccess?.();
-  }, [activeJob, effectiveImportMode, isOpen, onImportSuccess]);
+    notifyJobFinished(notify, activeJob);
+    if ((activeJob.summary?.success || 0) > 0) {
+      onImportSuccess?.();
+    }
+  }, [activeJob, effectiveImportMode, isOpen, notify, onImportSuccess]);
 
   const runningBulkAccountJob = effectiveImportMode === "bulk-account" && activeJob && !isJobTerminal(activeJob.status);
   const finishedBulkAccountJob = effectiveImportMode === "bulk-account" && activeJob && isJobTerminal(activeJob.status);
