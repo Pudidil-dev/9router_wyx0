@@ -4,6 +4,8 @@ import path from "node:path";
 import { DATA_DIR } from "../../dataDir.js";
 import { KiroService } from "./kiro.js";
 import { createKiroCallbackMonitor, runKiroGoogleAutomation } from "./kiroGoogleAutomation.js";
+import { createAutomationBrowserLauncher } from "./automationBrowserLauncher.js";
+import { DEFAULT_AUTOMATION_BROWSER, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
 
 export const KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY = 4;
 export const KIRO_BULK_IMPORT_MIN_CONCURRENCY = 1;
@@ -180,6 +182,7 @@ function sanitizeJob(job, extras = {}) {
     status: job.status,
     summary: buildSummary(job.accounts),
     concurrency: job.concurrency,
+    browser: job.browserChoice || DEFAULT_AUTOMATION_BROWSER,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
@@ -249,12 +252,8 @@ function cancelPersistedActiveJob(job) {
   });
 }
 
-async function defaultBrowserLauncher() {
-  const { chromium } = await import("playwright");
-
-  return await chromium.launch({
-    headless: true,
-  });
+async function defaultBrowserLauncher(browser = DEFAULT_AUTOMATION_BROWSER) {
+  return await createAutomationBrowserLauncher(browser)();
 }
 
 async function defaultSocialExchange(args) {
@@ -330,7 +329,7 @@ export class KiroBulkImportManager {
     this.latestJobId = readPersistedLatestJobId(this.metaFile);
   }
 
-  async startJob({ accounts, concurrency }) {
+  async startJob({ accounts, concurrency, browser }) {
     const { parsed, invalidLines } = parseKiroBulkAccounts(accounts);
     if (!parsed.length) {
       const error = invalidLines.length > 0
@@ -348,10 +347,12 @@ export class KiroBulkImportManager {
 
     const jobId = randomUUID();
     const createdAt = nowIso();
+    const browserChoice = normalizeAutomationBrowser(browser);
     const job = {
       jobId,
       status: "running",
       concurrency: clampConcurrency(concurrency),
+      browserChoice,
       createdAt,
       startedAt: createdAt,
       finishedAt: null,
@@ -735,7 +736,7 @@ export class KiroBulkImportManager {
     if (!job) return;
 
     try {
-      job.browser = await this.browserLauncher();
+      job.browser = await this.browserLauncher(job.browserChoice || DEFAULT_AUTOMATION_BROWSER);
       job.accounts.forEach((account) => {
         if (account.status === "queued" && (account.logs || []).length === 1) {
           this.setAccountStep(account, "waiting_for_worker", "Waiting for a free worker");
