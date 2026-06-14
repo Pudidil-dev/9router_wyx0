@@ -1,4 +1,4 @@
-import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, computeRetryDelay, FETCH_CONNECT_TIMEOUT_MS, FETCH_REQUEST_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { shouldRefreshCredentials } from "../services/oauthCredentialManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
@@ -111,10 +111,11 @@ export class BaseExecutor {
 
     // Schedule retry via retryConfig[statusKey]. Returns true when caller should `urlIndex--; continue`
     const tryRetry = async (urlIndex, statusKey, reason) => {
-      const { attempts, delayMs } = resolveRetryEntry(retryConfig[statusKey]);
-      if (attempts <= 0 || retryAttemptsByUrl[urlIndex] >= attempts) return false;
+      const resolved = resolveRetryEntry(retryConfig[statusKey]);
+      if (resolved.attempts <= 0 || retryAttemptsByUrl[urlIndex] >= resolved.attempts) return false;
       retryAttemptsByUrl[urlIndex]++;
-      log?.debug?.("RETRY", `${reason} retry ${retryAttemptsByUrl[urlIndex]}/${attempts} after ${delayMs / 1000}s`);
+      const delayMs = computeRetryDelay(resolved, retryAttemptsByUrl[urlIndex]);
+      log?.debug?.("RETRY", `${reason} retry ${retryAttemptsByUrl[urlIndex]}/${resolved.attempts} after ${(delayMs / 1000).toFixed(1)}s`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
       return true;
     };
@@ -126,26 +127,40 @@ export class BaseExecutor {
 
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 
-      // Abort if upstream doesn't return response headers within connection timeout
+      // Two-tier timeout:
+      //   - connectTimeoutMs: upper bound on time-to-first-byte (connect + upload + first response chunk)
+      //   - requestTimeoutMs: hard ceiling on the entire pre-stream phase, independent of TTFB
+      // For large payloads (long context, images) routed through proxies, upload itself can
+      // exceed the legacy 60s "connect" timer — so we use a much larger ceiling here and let
+      // the stream-stall watchdog handle the streaming phase separately.
       const connectCtrl = new AbortController();
-      const timeoutMs = this.config?.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
-      const connectTimer = setTimeout(() => connectCtrl.abort(new Error("fetch connect timeout")), timeoutMs);
-      const mergedSignal = signal ? AbortSignal.any([signal, connectCtrl.signal]) : connectCtrl.signal;
+      const requestCtrl = new AbortController();
+      const connectTimeoutMs = this.config?.connectTimeoutMs || this.config?.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
+      const requestTimeoutMs = this.config?.requestTimeoutMs || FETCH_REQUEST_TIMEOUT_MS;
+      const connectTimer = setTimeout(() => connectCtrl.abort(new Error("fetch connect timeout")), connectTimeoutMs);
+      const requestTimer = setTimeout(() => requestCtrl.abort(new Error("fetch request timeout")), requestTimeoutMs);
+      const signals = [connectCtrl.signal, requestCtrl.signal];
+      if (signal) signals.push(signal);
+      const mergedSignal = AbortSignal.any(signals);
 
       try {
         const requestBody = this.prepareRequestBody(transformedBody, headers);
         const requestBodySize = typeof requestBody === "string"
           ? requestBody.length
           : requestBody?.byteLength ?? requestBody?.length ?? "?";
+        const sizeKB = typeof requestBodySize === "number" ? Math.round(requestBodySize / 1024) : "?";
         const fetchT0 = Date.now();
-        dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${requestBodySize}B | connectTimeout=${timeoutMs}ms`);
+        dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${requestBodySize}B (${sizeKB}KB) | connectTimeout=${connectTimeoutMs}ms requestTimeout=${requestTimeoutMs}ms`);
         const response = await proxyAwareFetch(url, {
           method: "POST",
           headers,
           body: requestBody,
           signal: mergedSignal
         }, proxyOptions);
+        // Got the response object — connect+upload+TTFB phase is done.
+        // Clear both timers so they don't fire during body streaming.
         clearTimeout(connectTimer);
+        clearTimeout(requestTimer);
         const ct = response.headers?.get?.("content-type") || "";
         const cl = response.headers?.get?.("content-length") || "?";
         dbg("FETCH", `${this.provider.toUpperCase()} ← ${response.status} | ttft=${Date.now() - fetchT0}ms | ct=${ct} | cl=${cl}`);
@@ -161,13 +176,17 @@ export class BaseExecutor {
         return { response, url, headers, transformedBody };
       } catch (error) {
         clearTimeout(connectTimer);
+        clearTimeout(requestTimer);
         lastError = error;
         const isConnectTimeout = connectCtrl.signal.aborted && error.name === "AbortError";
-        dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${isConnectTimeout ? " (connect timeout)" : ""}`);
-        // Connect timeout is internal — convert to retryable network error, don't propagate AbortError
-        if (error.name === "AbortError" && !isConnectTimeout) throw error;
+        const isRequestTimeout = requestCtrl.signal.aborted && error.name === "AbortError";
+        const timeoutTag = isConnectTimeout ? " (connect timeout)" : isRequestTimeout ? " (request timeout)" : "";
+        dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${timeoutTag}`);
+        // Internal timeouts (connect/request) are retryable — convert to network error, don't propagate AbortError.
+        // External user aborts still bubble up.
+        if (error.name === "AbortError" && !isConnectTimeout && !isRequestTimeout) throw error;
 
-        // Map network/fetch exceptions to 502 retry config
+        // Map network/fetch exceptions (and our internal timeouts) to 502 retry config
         if (await tryRetry(urlIndex, HTTP_STATUS.BAD_GATEWAY, `network "${error.message}"`)) { urlIndex--; continue; }
 
         if (urlIndex + 1 < fallbackCount) {

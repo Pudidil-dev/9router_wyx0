@@ -373,11 +373,22 @@ export const PROVIDERS = {
     baseUrl: "https://gitlab.com/api/v4/chat/completions",
     format: "openai",
   },
-  // CodeBuddy (Tencent) - external CodeBuddy Code endpoint
+  // CodeBuddy (Tencent) - external CodeBuddy Code endpoint.
+  // Long context + pasted images can produce multi-MB request bodies; routed through
+  // user proxies the upload phase alone can exceed default timeouts. We give this
+  // provider a generous connect ceiling and an exponential-backoff retry on 502/504
+  // (which is also what internal fetch connect/request timeouts get mapped to).
   codebuddy: {
     baseUrl: "https://www.codebuddy.ai/v2/chat/completions",
     format: "openai",
     refreshUrl: "https://www.codebuddy.ai/v2/plugin/auth/token/refresh",
+    connectTimeoutMs: 240 * 1000,   // 4 min — covers slow-proxy upload of large bodies
+    requestTimeoutMs: 360 * 1000,   // 6 min — hard ceiling on the entire pre-stream phase
+    retry: {
+      502: { attempts: 4, delayMs: 2000, backoff: "exponential", jitter: true, maxDelayMs: 30000 },
+      503: { attempts: 4, delayMs: 2000, backoff: "exponential", jitter: true, maxDelayMs: 30000 },
+      504: { attempts: 3, delayMs: 3000, backoff: "exponential", jitter: true, maxDelayMs: 30000 }
+    }
   },
   opencode: {
     baseUrl: "https://opencode.ai",
