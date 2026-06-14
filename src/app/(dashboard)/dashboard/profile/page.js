@@ -36,6 +36,7 @@ export default function ProfilePage() {
   const [dbStatus, setDbStatus] = useState({ type: "", message: "" });
   const [dbAuth, setDbAuth] = useState({ open: false, mode: "", password: "" });
   const [dbImportMode, setDbImportMode] = useState("replace");
+  const [dbImportModeOpen, setDbImportModeOpen] = useState(false);
   const pendingImportRef = useRef(null);
   const [oidcForm, setOidcForm] = useState({
     authMode: "password",
@@ -507,6 +508,12 @@ export default function ProfilePage() {
     }
   };
 
+  const startImportDatabase = (mode) => {
+    setDbImportMode(mode);
+    setDbImportModeOpen(false);
+    importFileRef.current?.click();
+  };
+
   const handleImportDatabase = (event) => {
     const file = event.target.files?.[0];
     if (importFileRef.current) importFileRef.current.value = "";
@@ -629,51 +636,25 @@ export default function ProfilePage() {
                 <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.9router/db/data.sqlite</p>
               </div>
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDbImportMode("replace")}
-                  className={cn(
-                    "text-left p-3 rounded-lg border transition-colors",
-                    dbImportMode === "replace" ? "border-red-500 bg-red-500/10" : "border-border bg-bg hover:border-red-500/50"
-                  )}
-                >
-                  <p className="font-medium text-sm">Replace everything</p>
-                  <p className="text-xs text-text-muted mt-1">Deletes current data before restoring the backup.</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDbImportMode("merge_accounts_proxies")}
-                  className={cn(
-                    "text-left p-3 rounded-lg border transition-colors",
-                    dbImportMode === "merge_accounts_proxies" ? "border-primary bg-primary/10" : "border-border bg-bg hover:border-primary/50"
-                  )}
-                >
-                  <p className="font-medium text-sm">Merge accounts and proxies</p>
-                  <p className="text-xs text-text-muted mt-1">Adds or updates accounts and proxy pools without removing existing ones.</p>
-                </button>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button
-                  variant="secondary"
-                  icon="download"
-                  onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
-                  loading={dbLoading}
-                  className="w-full sm:w-auto"
-                >
-                  Download Backup
-                </Button>
-                <Button
-                  variant="outline"
-                  icon="upload"
-                  onClick={() => importFileRef.current?.click()}
-                  disabled={dbLoading}
-                  className="w-full sm:w-auto"
-                >
-                  Import Backup
-                </Button>
-              </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                variant="secondary"
+                icon="download"
+                onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
+                loading={dbLoading}
+                className="w-full sm:w-auto"
+              >
+                Download Backup
+              </Button>
+              <Button
+                variant="outline"
+                icon="upload"
+                onClick={() => setDbImportModeOpen(true)}
+                disabled={dbLoading}
+                className="w-full sm:w-auto"
+              >
+                Import Backup
+              </Button>
               <input
                 ref={importFileRef}
                 type="file"
@@ -1186,6 +1167,39 @@ export default function ProfilePage() {
         variant="danger"
         loading={isShuttingDown}
       />
+
+      <Modal
+        isOpen={dbImportModeOpen}
+        onClose={() => setDbImportModeOpen(false)}
+        title="Import Backup"
+        size="sm"
+      >
+        <p className="text-text-muted mb-4 text-sm">
+          Choose how this backup should be imported.
+        </p>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => startImportDatabase("replace")}
+            className="text-left p-4 rounded-lg border border-border bg-bg hover:border-red-500/60 hover:bg-red-500/10 transition-colors"
+          >
+            <p className="font-medium text-sm text-red-600 dark:text-red-400">Replace everything</p>
+            <p className="text-xs text-text-muted mt-1">
+              Deletes current settings, accounts, proxies, keys, combos, and pricing before restoring the backup.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => startImportDatabase("merge_accounts_proxies")}
+            className="text-left p-4 rounded-lg border border-border bg-bg hover:border-primary/60 hover:bg-primary/10 transition-colors"
+          >
+            <p className="font-medium text-sm">Merge accounts and proxies</p>
+            <p className="text-xs text-text-muted mt-1">
+              Adds or updates accounts and proxy pools from the backup without removing existing ones.
+            </p>
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={dbAuth.open}
