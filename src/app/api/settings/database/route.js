@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exportDb, getSettings, importDb } from "@/lib/localDb";
+import { exportDb, getSettings, importDb, mergeAccountsAndProxyPoolsFromDb } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { verifyDashboardPassword } from "@/lib/auth/dashboardSession";
 
@@ -26,11 +26,24 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { password, ...payload } = await request.json();
+    const { password, importMode = "replace", ...payload } = await request.json();
     if (!isCliRequest(request) && !(await verifyDashboardPassword(password))) {
       return NextResponse.json({ error: "Invalid password" }, { status: 401 });
     }
-    await importDb(payload);
+
+    if (![
+      "replace",
+      "merge_accounts_proxies",
+    ].includes(importMode)) {
+      return NextResponse.json({ error: "Invalid import mode" }, { status: 400 });
+    }
+
+    let summary = null;
+    if (importMode === "merge_accounts_proxies") {
+      summary = await mergeAccountsAndProxyPoolsFromDb(payload);
+    } else {
+      await importDb(payload);
+    }
 
     // Ensure proxy settings take effect immediately after a DB import.
     try {
@@ -40,7 +53,7 @@ export async function POST(request) {
       console.warn("[Settings][DatabaseImport] Failed to re-apply outbound proxy env:", err);
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, mode: importMode, ...(summary ? { summary } : {}) });
   } catch (error) {
     console.log("Error importing database:", error);
     return NextResponse.json(

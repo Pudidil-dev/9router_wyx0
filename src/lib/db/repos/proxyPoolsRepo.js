@@ -77,6 +77,68 @@ export async function createProxyPool(data) {
   return pool;
 }
 
+function normalizeProxyIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+export async function mergeProxyPool(data) {
+  const db = await getAdapter();
+  const now = new Date().toISOString();
+  const incomingType = data.type || "http";
+  const incomingUrl = data.proxyUrl || "";
+  let result = null;
+  let action = "created";
+
+  db.transaction(() => {
+    let existing = data.id ? rowToPool(db.get(`SELECT * FROM proxyPools WHERE id = ?`, [data.id])) : null;
+    if (!existing && incomingUrl) {
+      const pools = db.all(`SELECT * FROM proxyPools`).map(rowToPool);
+      existing = pools.find((p) => (
+        normalizeProxyIdentity(p.proxyUrl) === normalizeProxyIdentity(incomingUrl)
+        && normalizeProxyIdentity(p.type || "http") === normalizeProxyIdentity(incomingType)
+      )) || null;
+    }
+
+    if (existing) {
+      const merged = {
+        ...existing,
+        ...data,
+        id: existing.id,
+        type: incomingType,
+        noProxy: data.noProxy !== undefined ? data.noProxy : existing.noProxy,
+        strictProxy: data.strictProxy !== undefined ? data.strictProxy === true : existing.strictProxy === true,
+        isActive: data.isActive !== undefined ? data.isActive : existing.isActive,
+        testStatus: data.testStatus || existing.testStatus || "unknown",
+        createdAt: existing.createdAt,
+        updatedAt: now,
+      };
+      upsert(db, merged);
+      result = merged;
+      action = "merged";
+      return;
+    }
+
+    const pool = {
+      id: uuidv4(),
+      name: data.name,
+      proxyUrl: incomingUrl,
+      noProxy: data.noProxy || "",
+      type: incomingType,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      strictProxy: data.strictProxy === true,
+      testStatus: data.testStatus || "unknown",
+      lastTestedAt: data.lastTestedAt || null,
+      lastError: data.lastError || null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    upsert(db, pool);
+    result = pool;
+  });
+
+  return { pool: result, action };
+}
+
 export async function updateProxyPool(id, data) {
   const db = await getAdapter();
   let result = null;

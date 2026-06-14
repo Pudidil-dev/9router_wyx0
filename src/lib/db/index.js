@@ -24,7 +24,7 @@ export {
 // Proxy pools
 export {
   getProxyPools, getProxyPoolById,
-  createProxyPool, updateProxyPool, deleteProxyPool,
+  createProxyPool, mergeProxyPool, updateProxyPool, deleteProxyPool,
 } from "./repos/proxyPoolsRepo.js";
 
 // API keys
@@ -93,10 +93,14 @@ export async function exportDb() {
   return out;
 }
 
-export async function importDb(payload) {
+function assertValidDbPayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("Invalid database payload");
   }
+}
+
+export async function importDb(payload) {
+  assertValidDbPayload(payload);
   const db = await getAdapter();
 
   db.transaction(() => {
@@ -163,6 +167,53 @@ export async function importDb(payload) {
   });
 
   return await exportDb();
+}
+
+export async function mergeAccountsAndProxyPoolsFromDb(payload) {
+  assertValidDbPayload(payload);
+  const { createProviderConnection } = await import("./repos/connectionsRepo.js");
+  const { mergeProxyPool } = await import("./repos/proxyPoolsRepo.js");
+  const summary = {
+    accountsCreated: 0,
+    accountsMerged: 0,
+    accountsSkipped: 0,
+    proxiesCreated: 0,
+    proxiesMerged: 0,
+    proxiesSkipped: 0,
+  };
+
+  for (const connection of payload.providerConnections || []) {
+    try {
+      const { id, createdAt, updatedAt, ...data } = connection || {};
+      if (!data.provider) {
+        summary.accountsSkipped += 1;
+        continue;
+      }
+      const beforeId = data.authType === "access_token" ? null : id;
+      const saved = await createProviderConnection(data);
+      if (beforeId && saved?.id === beforeId) summary.accountsMerged += 1;
+      else if (saved?.updatedAt && saved?.createdAt && saved.updatedAt !== saved.createdAt) summary.accountsMerged += 1;
+      else summary.accountsCreated += 1;
+    } catch (err) {
+      summary.accountsSkipped += 1;
+    }
+  }
+
+  for (const proxy of payload.proxyPools || []) {
+    try {
+      if (!proxy?.proxyUrl) {
+        summary.proxiesSkipped += 1;
+        continue;
+      }
+      const { action } = await mergeProxyPool(proxy);
+      if (action === "merged") summary.proxiesMerged += 1;
+      else summary.proxiesCreated += 1;
+    } catch (err) {
+      summary.proxiesSkipped += 1;
+    }
+  }
+
+  return summary;
 }
 
 // Eager init helper (optional)

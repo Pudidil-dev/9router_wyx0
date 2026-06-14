@@ -35,6 +35,7 @@ export default function ProfilePage() {
   const [dbLoading, setDbLoading] = useState(false);
   const [dbStatus, setDbStatus] = useState({ type: "", message: "" });
   const [dbAuth, setDbAuth] = useState({ open: false, mode: "", password: "" });
+  const [dbImportMode, setDbImportMode] = useState("replace");
   const pendingImportRef = useRef(null);
   const [oidcForm, setOidcForm] = useState({
     authMode: "password",
@@ -526,7 +527,7 @@ export default function ProfilePage() {
       const res = await fetch("/api/settings/database", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, password }),
+        body: JSON.stringify({ ...payload, password, importMode: dbImportMode }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -535,7 +536,15 @@ export default function ProfilePage() {
       }
 
       await reloadSettings();
-      setDbStatus({ type: "success", message: "Database imported successfully" });
+      if (data.mode === "merge_accounts_proxies" && data.summary) {
+        const s = data.summary;
+        setDbStatus({
+          type: "success",
+          message: `Merged backup: ${s.accountsCreated} accounts added, ${s.accountsMerged} accounts updated, ${s.proxiesCreated} proxies added, ${s.proxiesMerged} proxies updated.`,
+        });
+      } else {
+        setDbStatus({ type: "success", message: "Database imported successfully" });
+      }
     } catch (err) {
       setDbStatus({ type: "error", message: err.message || "Invalid backup file" });
     } finally {
@@ -620,25 +629,51 @@ export default function ProfilePage() {
                 <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.9router/db/data.sqlite</p>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                variant="secondary"
-                icon="download"
-                onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
-                loading={dbLoading}
-                className="w-full sm:w-auto"
-              >
-                Download Backup
-              </Button>
-              <Button
-                variant="outline"
-                icon="upload"
-                onClick={() => importFileRef.current?.click()}
-                disabled={dbLoading}
-                className="w-full sm:w-auto"
-              >
-                Import Backup
-              </Button>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDbImportMode("replace")}
+                  className={cn(
+                    "text-left p-3 rounded-lg border transition-colors",
+                    dbImportMode === "replace" ? "border-red-500 bg-red-500/10" : "border-border bg-bg hover:border-red-500/50"
+                  )}
+                >
+                  <p className="font-medium text-sm">Replace everything</p>
+                  <p className="text-xs text-text-muted mt-1">Deletes current data before restoring the backup.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDbImportMode("merge_accounts_proxies")}
+                  className={cn(
+                    "text-left p-3 rounded-lg border transition-colors",
+                    dbImportMode === "merge_accounts_proxies" ? "border-primary bg-primary/10" : "border-border bg-bg hover:border-primary/50"
+                  )}
+                >
+                  <p className="font-medium text-sm">Merge accounts and proxies</p>
+                  <p className="text-xs text-text-muted mt-1">Adds or updates accounts and proxy pools without removing existing ones.</p>
+                </button>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  variant="secondary"
+                  icon="download"
+                  onClick={() => setDbAuth({ open: true, mode: "export", password: "" })}
+                  loading={dbLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Download Backup
+                </Button>
+                <Button
+                  variant="outline"
+                  icon="upload"
+                  onClick={() => importFileRef.current?.click()}
+                  disabled={dbLoading}
+                  className="w-full sm:w-auto"
+                >
+                  Import Backup
+                </Button>
+              </div>
               <input
                 ref={importFileRef}
                 type="file"

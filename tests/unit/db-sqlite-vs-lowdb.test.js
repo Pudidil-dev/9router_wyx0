@@ -18,7 +18,13 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+  if (tempDir) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch (err) {
+      if (err?.code !== "EBUSY") throw err;
+    }
+  }
   if (originalDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = originalDataDir;
 });
@@ -245,6 +251,98 @@ describe("DB SQLite layer — public API parity", () => {
 
     await sqliteDb.importDb(snap);
     expect((await sqliteDb.getModelAliases()).marker).toBe("before");
+  });
+
+  it("mergeAccountsAndProxyPoolsFromDb keeps existing data and dedupes imports", async () => {
+    await sqliteDb.updateSettings({ mergeImportMarker: "local" });
+    await sqliteDb.setModelAlias("merge-import-marker", "local");
+
+    const existingAccount = await sqliteDb.createProviderConnection({
+      provider: "merge-provider",
+      authType: "oauth",
+      email: "same@example.com",
+      accessToken: "old-token",
+    });
+    const existingProxy = await sqliteDb.createProxyPool({
+      name: "Old proxy",
+      proxyUrl: "http://merge-proxy:8080",
+      type: "http",
+      noProxy: "localhost",
+    });
+
+    const summary = await sqliteDb.mergeAccountsAndProxyPoolsFromDb({
+      settings: { mergeImportMarker: "imported" },
+      modelAliases: { "merge-import-marker": "imported" },
+      providerConnections: [
+        {
+          id: "backup-duplicate-account",
+          provider: "merge-provider",
+          authType: "oauth",
+          email: "same@example.com",
+          accessToken: "new-token",
+        },
+        {
+          id: "backup-new-account",
+          provider: "merge-provider",
+          authType: "oauth",
+          email: "new@example.com",
+          accessToken: "brand-new-token",
+        },
+      ],
+      proxyPools: [
+        {
+          id: "backup-duplicate-proxy",
+          name: "Updated proxy",
+          proxyUrl: "http://merge-proxy:8080",
+          type: "http",
+          noProxy: "localhost,127.0.0.1",
+        },
+        {
+          id: "backup-new-proxy",
+          name: "New proxy",
+          proxyUrl: "http://merge-proxy-2:8080",
+          type: "http",
+        },
+      ],
+    });
+
+    expect(summary.accountsCreated).toBe(1);
+    expect(summary.accountsMerged).toBe(1);
+    expect(summary.proxiesCreated).toBe(1);
+    expect(summary.proxiesMerged).toBe(1);
+
+    const accounts = await sqliteDb.getProviderConnections({ provider: "merge-provider" });
+    expect(accounts.filter((c) => c.email === "same@example.com")).toHaveLength(1);
+    expect(accounts.find((c) => c.id === existingAccount.id)?.accessToken).toBe("new-token");
+    expect(accounts.find((c) => c.email === "new@example.com")).toBeDefined();
+
+    const proxies = await sqliteDb.getProxyPools();
+    expect(proxies.filter((p) => p.proxyUrl === "http://merge-proxy:8080" && p.type === "http")).toHaveLength(1);
+    expect(proxies.find((p) => p.id === existingProxy.id)?.name).toBe("Updated proxy");
+    expect(proxies.find((p) => p.proxyUrl === "http://merge-proxy-2:8080")).toBeDefined();
+
+    expect((await sqliteDb.getSettings()).mergeImportMarker).toBe("local");
+    expect((await sqliteDb.getModelAliases())["merge-import-marker"]).toBe("local");
+  });
+
+  it("mergeAccountsAndProxyPoolsFromDb is repeat-safe for semantic proxy matches", async () => {
+    const payload = {
+      providerConnections: [],
+      proxyPools: [
+        {
+          id: "repeat-backup-proxy",
+          name: "Repeat proxy",
+          proxyUrl: "http://repeat-proxy:8080",
+          type: "http",
+        },
+      ],
+    };
+
+    await sqliteDb.mergeAccountsAndProxyPoolsFromDb(payload);
+    await sqliteDb.mergeAccountsAndProxyPoolsFromDb(payload);
+
+    const proxies = await sqliteDb.getProxyPools();
+    expect(proxies.filter((p) => p.proxyUrl === "http://repeat-proxy:8080" && p.type === "http")).toHaveLength(1);
   });
 
   it("pricing: user pricing merged with constants", async () => {
