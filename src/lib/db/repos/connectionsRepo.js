@@ -56,6 +56,69 @@ function upsert(db, c) {
   );
 }
 
+function normalizeIdentityValue(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized || null;
+}
+
+function isPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function connectionIdentityKeys(conn = {}) {
+  const keys = new Set();
+  const email = normalizeIdentityValue(conn.email);
+  if (email) keys.add(`email:${email}`);
+
+  const psd = isPlainObject(conn.providerSpecificData) ? conn.providerSpecificData : {};
+  for (const field of ["chatgptAccountId", "githubUserId", "profileArn", "machineId"]) {
+    const value = normalizeIdentityValue(psd[field]);
+    if (value) keys.add(`psd:${field}:${value}`);
+  }
+
+  const username = normalizeIdentityValue(psd.username);
+  const baseUrl = normalizeIdentityValue(psd.baseUrl);
+  if (username && baseUrl) keys.add(`psd:username-baseurl:${username}|${baseUrl}`);
+
+  return keys;
+}
+
+function findBackupMergeCandidate(data, existingConnections) {
+  const incomingKeys = connectionIdentityKeys(data);
+  if (incomingKeys.size === 0) return null;
+
+  const matches = existingConnections.filter((connection) => {
+    if (connection.authType !== (data.authType || "oauth")) return false;
+    const incomingChatgptId = normalizeIdentityValue(data.providerSpecificData?.chatgptAccountId);
+    const existingChatgptId = normalizeIdentityValue(connection.providerSpecificData?.chatgptAccountId);
+    if (incomingChatgptId && existingChatgptId && incomingChatgptId !== existingChatgptId) return false;
+    const existingKeys = connectionIdentityKeys(connection);
+    for (const key of incomingKeys) {
+      if (existingKeys.has(key)) return true;
+    }
+    return false;
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function mergeDefinedFields(existing, data, now) {
+  const merged = { ...existing, updatedAt: now };
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined || value === null) continue;
+    if (key === "providerSpecificData") continue;
+    merged[key] = value;
+  }
+  if (isPlainObject(existing.providerSpecificData) || isPlainObject(data.providerSpecificData)) {
+    merged.providerSpecificData = {
+      ...(isPlainObject(existing.providerSpecificData) ? existing.providerSpecificData : {}),
+      ...(isPlainObject(data.providerSpecificData) ? data.providerSpecificData : {}),
+    };
+  }
+  return merged;
+}
+
 export async function getProviderConnections(filter = {}) {
   const db = await getAdapter();
   const where = [];
@@ -151,6 +214,31 @@ export async function createProviderConnection(data) {
   });
 
   return result;
+}
+
+export async function mergeProviderConnectionFromBackup(data) {
+  if (!data?.provider) return { action: "skipped", connection: null };
+
+  const db = await getAdapter();
+  const now = new Date().toISOString();
+  let result;
+
+  db.transaction(() => {
+    const all = db.all(`SELECT * FROM providerConnections WHERE provider = ?`, [data.provider]).map(rowToConn);
+    const existing = data.authType === "apikey" ? null : findBackupMergeCandidate(data, all);
+
+    if (existing) {
+      const merged = mergeDefinedFields(existing, data, now);
+      upsert(db, merged);
+      result = { action: "merged", connection: merged };
+      return;
+    }
+  });
+
+  if (result) return result;
+
+  const created = await createProviderConnection(data);
+  return { action: "created", connection: created };
 }
 
 // Critical: OAuth refresh token race — atomic merge inside transaction

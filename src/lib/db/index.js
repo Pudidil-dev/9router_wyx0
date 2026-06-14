@@ -171,7 +171,7 @@ export async function importDb(payload) {
 
 export async function mergeAccountsAndProxyPoolsFromDb(payload) {
   assertValidDbPayload(payload);
-  const { createProviderConnection } = await import("./repos/connectionsRepo.js");
+  const { mergeProviderConnectionFromBackup } = await import("./repos/connectionsRepo.js");
   const { mergeProxyPool } = await import("./repos/proxyPoolsRepo.js");
   const summary = {
     accountsCreated: 0,
@@ -184,16 +184,18 @@ export async function mergeAccountsAndProxyPoolsFromDb(payload) {
 
   for (const connection of payload.providerConnections || []) {
     try {
-      const { id, createdAt, updatedAt, ...data } = connection || {};
+      const data = { ...(connection || {}) };
+      delete data.id;
+      delete data.createdAt;
+      delete data.updatedAt;
       if (!data.provider) {
         summary.accountsSkipped += 1;
         continue;
       }
-      const beforeId = data.authType === "access_token" ? null : id;
-      const saved = await createProviderConnection(data);
-      if (beforeId && saved?.id === beforeId) summary.accountsMerged += 1;
-      else if (saved?.updatedAt && saved?.createdAt && saved.updatedAt !== saved.createdAt) summary.accountsMerged += 1;
-      else summary.accountsCreated += 1;
+      const { action } = await mergeProviderConnectionFromBackup(data);
+      if (action === "merged") summary.accountsMerged += 1;
+      else if (action === "created") summary.accountsCreated += 1;
+      else summary.accountsSkipped += 1;
     } catch (err) {
       summary.accountsSkipped += 1;
     }

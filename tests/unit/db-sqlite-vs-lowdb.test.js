@@ -325,6 +325,121 @@ describe("DB SQLite layer — public API parity", () => {
     expect((await sqliteDb.getModelAliases())["merge-import-marker"]).toBe("local");
   });
 
+  it("mergeAccountsAndProxyPoolsFromDb dedupes oauth imports by stable provider-specific id", async () => {
+    const existing = await sqliteDb.createProviderConnection({
+      provider: "merge-stable-oauth",
+      authType: "oauth",
+      name: "Account 1",
+      accessToken: "old-token",
+      providerSpecificData: { profileArn: "arn:test:profile/one", localOnly: "keep" },
+    });
+
+    const payload = {
+      providerConnections: [
+        {
+          id: "backup-stable-oauth",
+          provider: "merge-stable-oauth",
+          authType: "oauth",
+          name: "Account 1",
+          email: null,
+          accessToken: "new-token",
+          providerSpecificData: { profileArn: "arn:test:profile/one", importedOnly: "add" },
+        },
+      ],
+    };
+
+    const firstSummary = await sqliteDb.mergeAccountsAndProxyPoolsFromDb(payload);
+    const secondSummary = await sqliteDb.mergeAccountsAndProxyPoolsFromDb(payload);
+
+    expect(firstSummary.accountsMerged).toBe(1);
+    expect(secondSummary.accountsMerged).toBe(1);
+
+    const accounts = await sqliteDb.getProviderConnections({ provider: "merge-stable-oauth" });
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].id).toBe(existing.id);
+    expect(accounts[0].accessToken).toBe("new-token");
+    expect(accounts[0].providerSpecificData).toEqual({
+      profileArn: "arn:test:profile/one",
+      localOnly: "keep",
+      importedOnly: "add",
+    });
+  });
+
+  it("mergeAccountsAndProxyPoolsFromDb does not dedupe ambiguous generic oauth names", async () => {
+    await sqliteDb.createProviderConnection({
+      provider: "merge-ambiguous-oauth",
+      authType: "oauth",
+      name: "Account 1",
+      accessToken: "old-token",
+    });
+
+    const summary = await sqliteDb.mergeAccountsAndProxyPoolsFromDb({
+      providerConnections: [
+        {
+          id: "backup-ambiguous-oauth",
+          provider: "merge-ambiguous-oauth",
+          authType: "oauth",
+          name: "Account 1",
+          email: null,
+          accessToken: "new-token",
+        },
+      ],
+    });
+
+    expect(summary.accountsCreated).toBe(1);
+    expect(summary.accountsMerged).toBe(0);
+    expect(await sqliteDb.getProviderConnections({ provider: "merge-ambiguous-oauth" })).toHaveLength(2);
+  });
+
+  it("mergeAccountsAndProxyPoolsFromDb dedupes access token imports only by stable id", async () => {
+    const stable = await sqliteDb.createProviderConnection({
+      provider: "merge-stable-token",
+      authType: "access_token",
+      name: "Account 1",
+      accessToken: "old-token",
+      providerSpecificData: { machineId: "machine-one" },
+    });
+    await sqliteDb.createProviderConnection({
+      provider: "merge-ambiguous-token",
+      authType: "access_token",
+      name: "Account 1",
+      accessToken: "old-token",
+    });
+
+    const stableSummary = await sqliteDb.mergeAccountsAndProxyPoolsFromDb({
+      providerConnections: [
+        {
+          id: "backup-stable-token",
+          provider: "merge-stable-token",
+          authType: "access_token",
+          name: "Account 1",
+          accessToken: "new-token",
+          providerSpecificData: { machineId: "machine-one" },
+        },
+      ],
+    });
+    const ambiguousSummary = await sqliteDb.mergeAccountsAndProxyPoolsFromDb({
+      providerConnections: [
+        {
+          id: "backup-ambiguous-token",
+          provider: "merge-ambiguous-token",
+          authType: "access_token",
+          name: "Account 1",
+          accessToken: "new-token",
+        },
+      ],
+    });
+
+    expect(stableSummary.accountsMerged).toBe(1);
+    expect(ambiguousSummary.accountsCreated).toBe(1);
+
+    const stableAccounts = await sqliteDb.getProviderConnections({ provider: "merge-stable-token" });
+    expect(stableAccounts).toHaveLength(1);
+    expect(stableAccounts[0].id).toBe(stable.id);
+    expect(stableAccounts[0].accessToken).toBe("new-token");
+    expect(await sqliteDb.getProviderConnections({ provider: "merge-ambiguous-token" })).toHaveLength(2);
+  });
+
   it("mergeAccountsAndProxyPoolsFromDb is repeat-safe for semantic proxy matches", async () => {
     const payload = {
       providerConnections: [],
