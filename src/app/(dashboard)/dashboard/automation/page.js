@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, KiroOAuthWrapper, OAuthModal } from "@/shared/components";
+import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, KiroOAuthWrapper, Modal, OAuthModal } from "@/shared/components";
 import { FREE_PROVIDERS } from "@/shared/constants/providers";
 
 function getConnectionLabel(count) {
@@ -309,24 +309,81 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
 
 function OneMinAutomationPanel({ onRefresh }) {
   const [isBulkOpen, setIsBulkOpen] = useState(false);
+  const [isWarningOpen, setIsWarningOpen] = useState(false);
+  const [bulkEnabled, setBulkEnabled] = useState(false);
+
+  const warningText = "This 1min AI bulk login flow is disabled by default because it is still in development and has known rough edges. Creating too many accounts can trigger this response: \"Your IP address (your ip) is locked due to abnormal activity. We will unlock it after 24 hours. Thank you!\" Use only a small number of accounts. If you still want to try it, enable the development flow first.";
+  const openBulkFlow = () => {
+    if (!bulkEnabled) {
+      setIsWarningOpen(true);
+      return;
+    }
+    setIsBulkOpen(true);
+  };
 
   return (
     <>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="font-semibold">1min AI bulk automation is disabled by default.</p>
+            <p className="mt-1 -rotate-1 text-xs italic leading-relaxed">Development mode. Read the warning before enabling this flow.</p>
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => setIsWarningOpen(true)}>
+            {bulkEnabled ? "Read Warning" : "Enable Development Flow"}
+          </Button>
+        </div>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <button
           type="button"
-          onClick={() => setIsBulkOpen(true)}
-          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+          onClick={openBulkFlow}
+          className={`flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border px-4 py-3 text-left transition-colors ${
+            bulkEnabled
+              ? "border-border bg-surface hover:border-primary/40 hover:bg-primary/5"
+              : "border-amber-300 bg-amber-50/70 opacity-80 hover:border-amber-400 dark:border-amber-800 dark:bg-amber-900/10"
+          }`}
         >
           <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
             <span className="material-symbols-outlined text-[20px] text-primary">group_add</span>
             Auto Login Bulk
+            {!bulkEnabled && <Badge variant="warning" size="sm">Disabled</Badge>}
           </span>
           <span className="text-xs leading-relaxed text-text-muted">
-            Run simple 1min AI Google login and create API keys automatically.
+            {bulkEnabled
+              ? "Run limited 1min AI Google login and create API keys automatically. Use only a few accounts."
+              : "Click to read why this development flow is disabled by default."}
           </span>
         </button>
       </div>
+
+      <Modal
+        isOpen={isWarningOpen}
+        title="1min AI Development Warning"
+        onClose={() => setIsWarningOpen(false)}
+        size="md"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+            {warningText}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={() => setIsWarningOpen(false)}>
+              Keep Disabled
+            </Button>
+            <Button
+              onClick={() => {
+                setBulkEnabled(true);
+                setIsWarningOpen(false);
+              }}
+            >
+              Enable, I Understand
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <BulkAccountAutomationModal
         isOpen={isBulkOpen}
         provider="1min-ai"
@@ -335,13 +392,14 @@ function OneMinAutomationPanel({ onRefresh }) {
         defaultConcurrency={1}
         maxConcurrency={1}
         accountFormat="gmail|password"
-        introText="1min AI uses a lightweight one-worker browser login: close the intro tour, click Log in with Google, then create an API key."
+        introText={`${warningText} 1min AI uses a lightweight one-worker browser login: close the intro tour, click Log in with Google, then create an API key.`}
         onSuccess={onRefresh}
         onClose={() => setIsBulkOpen(false)}
       />
     </>
   );
 }
+
 
 const AUTOMATION_PROVIDERS = [
   {
