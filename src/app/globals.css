@@ -267,6 +267,12 @@ input, textarea {
   border-radius: var(--radius-brand-lg);
 }
 
+/* App shadow utilities avoid Tailwind arbitrary var() parsing bugs. */
+.shadow-app-soft { box-shadow: var(--shadow-soft); }
+.shadow-app-warm { box-shadow: var(--shadow-warm); }
+.shadow-app-elev { box-shadow: var(--shadow-elev); }
+.hover\:shadow-app-warm:hover { box-shadow: var(--shadow-warm); }
+
 /* Hero gradient (compat) */
 .bg-hero-gradient {
   background: linear-gradient(180deg, var(--color-bg-alt) 0%, var(--color-bg) 100%);
