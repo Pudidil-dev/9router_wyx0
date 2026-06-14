@@ -29,6 +29,14 @@ const ONE_MIN_CLOSE_MODAL_SELECTORS = [
   ".ant-tour button:has(svg[data-icon='close'])",
   ".ant-tour [aria-label='Close']",
   ".ant-tour [aria-label='close']",
+  ".ant-modal-close",
+  ".ant-drawer-close",
+  "button[aria-label='Close']",
+  "button[aria-label='close']",
+  "[role='button'][aria-label='Close']",
+  "[role='button'][aria-label='close']",
+  "button:has-text('Got it')",
+  "button:has-text('Skip')",
 ];
 
 const ONE_MIN_LOGIN_TRIGGER_SELECTORS = [
@@ -116,6 +124,14 @@ const GOOGLE_APPROVE_SELECTORS = [
   "button:has-text('Allow')",
   "button:has-text('Izinkan')",
   "button:has-text('Lanjutkan')",
+  "button:has-text('Next')",
+  "button:has-text('Berikutnya')",
+  "button:has-text('Setuju')",
+  "button:has-text('Saya mengerti')",
+  "button:has-text('Oke')",
+  "button:has-text('OK')",
+  "button:has-text('Got it')",
+  "button:has-text('I understand')",
   "div[role='button']:has-text('Continue')",
   "div[role='button']:has-text('Allow')",
   "div[role='button']:has-text('Izinkan')",
@@ -478,6 +494,7 @@ async function clickFirstVisible(page, selectors) {
     const count = await locator.count().catch(() => 0);
     if (!count) continue;
 
+    await locator.scrollIntoViewIfNeeded?.().catch(() => null);
     const visible = await locator.isVisible().catch(() => false);
     if (!visible) continue;
 
@@ -615,6 +632,73 @@ async function dismissOneMinIntroModal(page, reportStep) {
   return dismissed;
 }
 
+async function scrollGoogleConsentPage(page) {
+  try {
+    await page.mouse?.wheel?.(0, 900);
+    await page.evaluate?.(() => {
+      window.scrollBy(0, window.innerHeight || 800);
+      document.querySelectorAll('[role="dialog"], main, div').forEach((element) => {
+        if (element && element.scrollHeight > element.clientHeight) element.scrollTop = element.scrollHeight;
+      });
+    }).catch(() => null);
+    await page.waitForTimeout?.(500).catch(() => null);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function clickGoogleConsentByDom(page) {
+  try {
+    return await page.evaluate(() => {
+      const matches = (text) => /^(continue|allow|next|yes|accept|lanjutkan|berikutnya|izinkan|setuju|saya mengerti|oke|ok|got it|i understand)$/i.test(String(text || "").trim());
+      const root = document.scrollingElement || document.documentElement || document.body;
+      if (root) root.scrollTop = root.scrollHeight;
+      window.scrollTo(0, document.body?.scrollHeight || document.documentElement?.scrollHeight || 0);
+      const candidates = Array.from(document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]'));
+      for (const element of candidates) {
+        const text = element.value || element.innerText || element.textContent || element.getAttribute("aria-label") || "";
+        if (!matches(text)) continue;
+        element.scrollIntoView?.({ block: "center", inline: "center" });
+        element.click();
+        return true;
+      }
+      return false;
+    }).catch(() => false);
+  } catch {
+    return false;
+  }
+}
+
+async function handleGoogleConsentPage(page, reportStep) {
+  if (!isGoogleAuthPage(page)) return false;
+  const pageText = await readPageText(page);
+  const looksLikeConsent = /wants to access|ingin mengakses|akses akun google|akun google anda|allow/i.test(pageText);
+  if (!looksLikeConsent) return false;
+
+  await scrollGoogleConsentPage(page);
+  const clickedByLocator = await clickFirstVisible(page, GOOGLE_APPROVE_SELECTORS);
+  const clickedByDom = clickedByLocator ? false : await clickGoogleConsentByDom(page);
+  if (clickedByLocator || clickedByDom) {
+    reportStep("approving_google_consent", "Approving Google OAuth consent");
+    await page.waitForTimeout?.(1_000).catch(() => null);
+    return true;
+  }
+  return false;
+}
+
+async function dismissOneMinBlockingOverlays(page, reportStep, attempts = 3) {
+  let dismissedAny = false;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const dismissed = await clickFirstVisible(page, ONE_MIN_CLOSE_MODAL_SELECTORS);
+    if (!dismissed) break;
+    dismissedAny = true;
+    reportStep?.("closing_1min_overlay", "Closing 1min AI blocking overlay");
+    await page.waitForTimeout(500);
+  }
+  return dismissedAny;
+}
+
 async function runOneMinAccountAutomation({
   page,
   authUrl = ONE_MIN_APP_URL,
@@ -655,6 +739,7 @@ async function runOneMinAccountAutomation({
   }
   await page.waitForTimeout(1_500);
 
+
   const waitUntil = Date.now() + shortTimeoutMs;
   while (Date.now() < waitUntil) {
     const successResult = await Promise.race([
@@ -682,6 +767,8 @@ async function runOneMinAccountAutomation({
     const authSurfaces = isGoogleAuthPage(googlePage)
       ? [googlePage, ...getPageFrames(googlePage), ...surfaces.filter((surface) => surface !== googlePage)]
       : surfaces;
+    const handledConsent = await handleGoogleConsentPage(googlePage, reportStep);
+    if (handledConsent) continue;
     const googleEmailInput = await getFirstVisibleLocatorInSurfaces(authSurfaces, GOOGLE_EMAIL_SELECTORS);
     if (googleEmailInput) {
       reportStep("entering_google_email", "Entering Google email");
@@ -711,6 +798,15 @@ async function runOneMinAccountAutomation({
         reportStep("approving_google_consent", "Approving Google consent");
         await googlePage.waitForTimeout?.(1_000).catch(() => null);
         continue;
+      }
+      const scrolled = await scrollGoogleConsentPage(googlePage);
+      if (scrolled) {
+        const approvedAfterScroll = await clickFirstVisibleInSurfaces(authSurfaces, GOOGLE_APPROVE_SELECTORS);
+        if (approvedAfterScroll) {
+          reportStep("approving_google_consent", "Approving Google consent after scrolling");
+          await googlePage.waitForTimeout?.(1_000).catch(() => null);
+          continue;
+        }
       }
     }
 
@@ -791,9 +887,10 @@ async function waitForOneMinApiKey(page, previousKeys = [], timeoutMs = 30_000) 
   throw new Error(`1min AI API key was not visible after creation. Visible keys: ${lastKeys.length}`);
 }
 
-async function createOneMinApiKeyViaPage(page) {
+async function createOneMinApiKeyViaPage(page, onStep) {
   await page.goto(ONE_MIN_API_URL, { waitUntil: "domcontentloaded", timeout: 45_000 });
   await page.waitForTimeout(1_500);
+  await dismissOneMinBlockingOverlays(page, onStep, 5);
 
   const existingKeys = await readOneMinApiPageKeys(page).catch(() => []);
   const clicked = await clickFirstVisible(page, ONE_MIN_NEW_API_KEY_SELECTORS);
@@ -817,7 +914,7 @@ async function defaultCreateOneMinWebSessionTokens({ page, tokens = {}, email, o
   }
 
   onStep?.("creating_1min_api_key", "Creating 1min AI API key");
-  const apiKey = await createOneMinApiKeyViaPage(page);
+  const apiKey = await createOneMinApiKeyViaPage(page, onStep);
 
   return {
     ...tokens,

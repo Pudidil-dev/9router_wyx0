@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "dev": "next dev --webpack --port 20129",
+    "dev:turbo": "next dev --turbopack --port 20129",
     "build": "node ./scripts/build-next-safe.mjs",
     "start": "node ./scripts/start-standalone.mjs",
     "dev:bun": "bun --bun next dev --webpack --port 20129",

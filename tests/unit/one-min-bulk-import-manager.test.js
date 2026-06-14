@@ -8,6 +8,7 @@ import {
 function createFakeBrowser() {
   let apiPageOpen = false;
   let apiKeyCreateCount = 0;
+  let apiCreditIntroOpen = false;
   const fakePage = {
     on() {},
     off() {},
@@ -35,14 +36,26 @@ function createFakeBrowser() {
     },
     async goto(url) {
       apiPageOpen = url === "https://app.1min.ai/api";
+      apiCreditIntroOpen = apiPageOpen;
     },
     locator(selector) {
       return {
         first() { return this; },
-        async count() { return apiPageOpen && selector.includes("New API Key") ? 1 : 0; },
+        async count() {
+          if (!apiPageOpen) return 0;
+          if (apiCreditIntroOpen && (selector.includes("modal-close") || selector.includes("Close") || selector.includes("close"))) return 1;
+          if (apiCreditIntroOpen) return 0;
+          return selector.includes("New API Key") ? 1 : 0;
+        },
         async isVisible() { return (await this.count()) > 0; },
         async isEnabled() { return true; },
-        async click() { apiKeyCreateCount += 1; }
+        async click() {
+          if (apiCreditIntroOpen) {
+            apiCreditIntroOpen = false;
+            return;
+          }
+          apiKeyCreateCount += 1;
+        }
       };
     },
     async waitForTimeout() {},
