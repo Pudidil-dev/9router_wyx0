@@ -69,7 +69,7 @@ export default function ProfilePage() {
     proxyScraperIntervalMinutes: 60,
     proxyScraperSourceIds: ["github", "free-proxy-list"],
     proxyScraperActivateImported: true,
-    proxyScraperTestAfterImport: false,
+    proxyScraperTestAfterImport: true,
     proxyScraperLimit: 100,
   });
 
@@ -239,7 +239,7 @@ export default function ProfilePage() {
       if (res.ok) {
         await reloadSettings();
         const s = data.summary || {};
-        setScraperStatus({ type: "success", message: `Scrape complete: ${s.created || 0} created, ${s.merged || 0} merged, ${(s.skippedUnsupported || 0) + (s.skippedInvalid || 0)} skipped` });
+        setScraperStatus({ type: "success", message: `Scrape complete: ${s.created || 0} created, ${s.merged || 0} merged, ${(s.skippedUnsupported || 0) + (s.skippedInvalid || 0) + (s.skippedDead || 0)} skipped` });
       } else {
         setScraperStatus({ type: "error", message: data.error || "Proxy scrape failed" });
       }
@@ -1187,6 +1187,11 @@ export default function ProfilePage() {
               <span className="material-symbols-outlined text-[20px]">travel_explore</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Proxy Scraper</h3>
+            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Experimental</span>
+          </div>
+
+          <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs sm:text-sm text-text-muted">
+            Public scraped proxies are best-effort and can fail quickly. Use this for testing or fallback pools, not stable provider sessions.
           </div>
 
           <div className="flex flex-col gap-4">
@@ -1279,6 +1284,17 @@ export default function ProfilePage() {
                   disabled={loading || scraperLoading}
                 />
               </div>
+              <div className="flex items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="font-medium text-sm sm:text-base">Save only live proxies</p>
+                  <p className="text-xs sm:text-sm text-text-muted">Recommended. Test each proxy first and skip dead ones before saving.</p>
+                </div>
+                <Toggle
+                  checked={scraperForm.proxyScraperTestAfterImport === true}
+                  onChange={() => updateProxyScraperSetting("proxyScraperTestAfterImport", !scraperForm.proxyScraperTestAfterImport)}
+                  disabled={loading || scraperLoading}
+                />
+              </div>
             </div>
 
             {settings.proxyScraperLastRunAt && (
@@ -1286,7 +1302,7 @@ export default function ProfilePage() {
                 <p>Last run: {new Date(settings.proxyScraperLastRunAt).toLocaleString()}</p>
                 {settings.proxyScraperLastSummary && (
                   <p>
-                    Created {settings.proxyScraperLastSummary.created || 0}, merged {settings.proxyScraperLastSummary.merged || 0}, skipped {(settings.proxyScraperLastSummary.skippedUnsupported || 0) + (settings.proxyScraperLastSummary.skippedInvalid || 0)}
+                    Created {settings.proxyScraperLastSummary.created || 0}, merged {settings.proxyScraperLastSummary.merged || 0}, skipped {(settings.proxyScraperLastSummary.skippedUnsupported || 0) + (settings.proxyScraperLastSummary.skippedInvalid || 0) + (settings.proxyScraperLastSummary.skippedDead || 0)}
                   </p>
                 )}
               </div>

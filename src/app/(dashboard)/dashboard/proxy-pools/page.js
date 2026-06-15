@@ -42,7 +42,7 @@ export default function ProxyPoolsPage() {
   const [editingProxyPool, setEditingProxyPool] = useState(null);
   const [formData, setFormData] = useState(normalizeFormData());
   const [batchImportText, setBatchImportText] = useState("");
-  const [scrapeForm, setScrapeForm] = useState({ source: "all", limit: 100, activateImported: true, testAfterImport: false });
+  const [scrapeForm, setScrapeForm] = useState({ source: "all", limit: 100, activateImported: true, testAfterImport: true });
   const [scrapeSummary, setScrapeSummary] = useState(null);
   const [vercelForm, setVercelForm] = useState({ vercelToken: "", projectName: "vercel-relay" });
   const [cloudflareForm, setCloudflareForm] = useState({ accountId: "", apiToken: "", projectName: "cloudflare-relay" });
@@ -364,7 +364,7 @@ export default function ProxyPoolsPage() {
 
   const openScrapeModal = () => {
     setScrapeSummary(null);
-    setScrapeForm({ source: "all", limit: 100, activateImported: true, testAfterImport: false });
+    setScrapeForm({ source: "all", limit: 100, activateImported: true, testAfterImport: true });
     setShowScrapeModal(true);
   };
 
@@ -396,7 +396,7 @@ export default function ProxyPoolsPage() {
       setScrapeSummary(data.summary || null);
       await fetchProxyPools();
       const s = data.summary || {};
-      notify.success(`Scrape complete: ${s.created || 0} created, ${s.merged || 0} merged, ${(s.skippedUnsupported || 0) + (s.skippedInvalid || 0)} skipped`);
+      notify.success(`Scrape complete: ${s.created || 0} created, ${s.merged || 0} merged, ${(s.skippedUnsupported || 0) + (s.skippedInvalid || 0) + (s.skippedDead || 0)} skipped`);
     } catch (error) {
       console.log("Error scraping proxies:", error);
       notify.error("Proxy scrape failed");
@@ -694,6 +694,7 @@ export default function ProxyPoolsPage() {
 
           <Button size="sm" variant="secondary" icon="travel_explore" onClick={openScrapeModal}>
             Scrape Proxies
+            <span className="ml-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">EXP</span>
           </Button>
           <Button size="sm" variant="secondary" icon="upload" onClick={openBatchImportModal}>
             Batch Import
@@ -861,12 +862,13 @@ export default function ProxyPoolsPage() {
 
       <Modal
         isOpen={showScrapeModal}
-        title="Scrape Proxies"
+        title="Scrape Proxies (Experimental)"
         onClose={closeScrapeModal}
       >
         <div className="flex flex-col gap-4">
-          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-text-muted">
-            Auto-scrape public proxy lists and save usable HTTP proxies directly into Proxy Pools. Manual add and batch import remain unchanged. SOCKS entries are skipped for now.
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-text-muted">
+            <p className="mb-1 font-medium text-amber-700 dark:text-amber-300">Experimental best-effort feature</p>
+            Auto-scrape public proxy lists, live-test them, and save only usable HTTP proxies into Proxy Pools. Free public proxies can die quickly, so use them for testing/fallback only. Manual add and batch import remain unchanged. SOCKS entries are skipped for now.
           </div>
 
           <div className="flex flex-col gap-2">
@@ -908,8 +910,8 @@ export default function ProxyPoolsPage() {
 
           <div className="flex flex-col gap-3 rounded-lg border border-border/50 p-3 sm:flex-row sm:items-center sm:justify-between opacity-70">
             <div>
-              <p className="font-medium text-sm">Test after import</p>
-              <p className="text-xs text-text-muted">Reserved for batch health checks. Leave off for faster imports.</p>
+              <p className="font-medium text-sm">Save only live proxies</p>
+              <p className="text-xs text-text-muted">Recommended. Tests each proxy first and skips dead ones before saving.</p>
             </div>
             <Toggle
               checked={scrapeForm.testAfterImport === true}
@@ -923,7 +925,7 @@ export default function ProxyPoolsPage() {
               <p className="font-medium text-text-main">Last scrape summary</p>
               <p>Fetched: {scrapeSummary.fetched || 0} · Saved: {scrapeSummary.normalized || 0}</p>
               <p>Created: {scrapeSummary.created || 0} · Merged: {scrapeSummary.merged || 0}</p>
-              <p>Skipped unsupported: {scrapeSummary.skippedUnsupported || 0} · Invalid: {scrapeSummary.skippedInvalid || 0} · Failed: {scrapeSummary.failed || 0}</p>
+              <p>Dead: {scrapeSummary.skippedDead || 0} · Unsupported: {scrapeSummary.skippedUnsupported || 0} · Invalid: {scrapeSummary.skippedInvalid || 0} · Failed: {scrapeSummary.failed || 0}</p>
             </div>
           )}
 

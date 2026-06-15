@@ -1,10 +1,13 @@
 import { mergeProxyPool, updateSettings } from "@/lib/localDb";
+import { testProxyUrl } from "@/lib/network/proxyTest";
 import { normalizeScrapedProxy } from "./normalize.js";
 import { scrapeProxySources } from "./sources.js";
 
 const DEFAULT_SOURCE_IDS = ["github", "free-proxy-list"];
 const DEFAULT_PROTOCOLS = ["http", "https", "socks4", "socks5"];
 const MAX_LIMIT = 1000;
+const TEST_CONCURRENCY = 25;
+const TEST_TIMEOUT_MS = 5000;
 
 function normalizeSourceIds(sourceIds) {
   if (!Array.isArray(sourceIds) || sourceIds.length === 0) return DEFAULT_SOURCE_IDS;
@@ -16,6 +19,47 @@ function toPositiveLimit(value) {
   const limit = Number(value);
   if (!Number.isFinite(limit) || limit <= 0) return 100;
   return Math.min(Math.floor(limit), MAX_LIMIT);
+}
+
+async function testNormalizedCandidates(candidates, limit, summary, errors) {
+  const alive = [];
+  const queue = [...candidates];
+
+  const worker = async () => {
+    while (queue.length > 0 && alive.length < limit) {
+      const item = queue.shift();
+      if (!item) break;
+
+      const result = await testProxyUrl({
+        proxyUrl: item.pool.proxyUrl,
+        testUrl: "http://httpbin.org/ip",
+        timeoutMs: TEST_TIMEOUT_MS,
+      });
+
+      if (result.ok) {
+        alive.push({
+          ...item,
+          pool: {
+            ...item.pool,
+            testStatus: "active",
+            lastTestedAt: new Date().toISOString(),
+            lastError: null,
+            lastResponseMs: result.elapsedMs || null,
+          },
+        });
+      } else {
+        summary.skippedDead += 1;
+        errors.push({
+          sourceId: item.pool.sourceId,
+          proxy: item.pool.proxyUrl,
+          error: result.error || `Proxy test failed with status ${result.status}`,
+        });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(TEST_CONCURRENCY, queue.length) }, worker));
+  return alive.slice(0, limit);
 }
 
 export async function runProxyScrape(options = {}) {
@@ -31,6 +75,7 @@ export async function runProxyScrape(options = {}) {
     merged: 0,
     skippedUnsupported: 0,
     skippedInvalid: 0,
+    skippedDead: 0,
     failed: 0,
   };
 
@@ -48,11 +93,10 @@ export async function runProxyScrape(options = {}) {
   summary.failed = errors.length;
 
   const seen = new Set();
+  const normalizedCandidates = [];
   const importedPools = [];
 
   for (const candidate of candidates) {
-    if (importedPools.length >= limit) break;
-
     const normalized = normalizeScrapedProxy(candidate, { activateImported, scrapedAt });
     if (normalized.skipped) {
       if (normalized.reason === "unsupported_protocol") summary.skippedUnsupported += 1;
@@ -63,9 +107,17 @@ export async function runProxyScrape(options = {}) {
     const key = `${normalized.pool.type}:${normalized.pool.proxyUrl}`.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    normalizedCandidates.push(normalized);
+  }
 
-    summary.normalized += 1;
+  const shouldTestBeforeSave = options.testAfterImport !== false;
+  const candidatesToSave = shouldTestBeforeSave
+    ? await testNormalizedCandidates(normalizedCandidates, limit, summary, errors)
+    : normalizedCandidates.slice(0, limit);
 
+  summary.normalized = candidatesToSave.length;
+
+  for (const normalized of candidatesToSave) {
     try {
       const { pool, action } = await mergeProxyPool(normalized.pool);
       if (action === "merged") summary.merged += 1;
@@ -73,7 +125,7 @@ export async function runProxyScrape(options = {}) {
       if (pool) importedPools.push(pool);
     } catch (error) {
       summary.failed += 1;
-      errors.push({ sourceId: candidate.sourceId, proxy: candidate.proxy || candidate.ip, error: error.message });
+      errors.push({ sourceId: normalized.pool.sourceId, proxy: normalized.pool.proxyUrl, error: error.message });
     }
   }
 
