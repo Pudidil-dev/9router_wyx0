@@ -42,7 +42,7 @@ const DEFAULT_SETTINGS = {
   proxyScraperIntervalMinutes: 60,
   proxyScraperSourceIds: ["github", "free-proxy-list"],
   proxyScraperActivateImported: true,
-  proxyScraperTestAfterImport: true,
+  proxyScraperTestAfterImport: false,
   proxyScraperLimit: 100,
   proxyScraperLastRunAt: null,
   proxyScraperLastSummary: null,

@@ -42,7 +42,7 @@ export default function ProxyPoolsPage() {
   const [editingProxyPool, setEditingProxyPool] = useState(null);
   const [formData, setFormData] = useState(normalizeFormData());
   const [batchImportText, setBatchImportText] = useState("");
-  const [scrapeForm, setScrapeForm] = useState({ source: "all", limit: 100, activateImported: true, testAfterImport: true });
+  const [scrapeForm, setScrapeForm] = useState({ source: "all", limit: 100, activateImported: true, testAfterImport: false });
   const [scrapeSummary, setScrapeSummary] = useState(null);
   const [vercelForm, setVercelForm] = useState({ vercelToken: "", projectName: "vercel-relay" });
   const [cloudflareForm, setCloudflareForm] = useState({ accountId: "", apiToken: "", projectName: "cloudflare-relay" });
@@ -364,7 +364,7 @@ export default function ProxyPoolsPage() {
 
   const openScrapeModal = () => {
     setScrapeSummary(null);
-    setScrapeForm({ source: "all", limit: 100, activateImported: true, testAfterImport: true });
+    setScrapeForm({ source: "all", limit: 100, activateImported: true, testAfterImport: false });
     setShowScrapeModal(true);
   };
 

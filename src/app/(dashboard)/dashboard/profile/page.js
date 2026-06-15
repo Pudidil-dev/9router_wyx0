@@ -69,7 +69,7 @@ export default function ProfilePage() {
     proxyScraperIntervalMinutes: 60,
     proxyScraperSourceIds: ["github", "free-proxy-list"],
     proxyScraperActivateImported: true,
-    proxyScraperTestAfterImport: true,
+    proxyScraperTestAfterImport: false,
     proxyScraperLimit: 100,
   });
 
