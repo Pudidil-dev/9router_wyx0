@@ -61,6 +61,17 @@ export default function ProfilePage() {
   const [proxyStatus, setProxyStatus] = useState({ type: "", message: "" });
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
+  const [scraperLoading, setScraperLoading] = useState(false);
+  const [scraperStatus, setScraperStatus] = useState({ type: "", message: "" });
+  const [scraperForm, setScraperForm] = useState({
+    proxyScraperEnabled: false,
+    proxyScraperRunOnStartup: false,
+    proxyScraperIntervalMinutes: 60,
+    proxyScraperSourceIds: ["github", "free-proxy-list"],
+    proxyScraperActivateImported: true,
+    proxyScraperTestAfterImport: false,
+    proxyScraperLimit: 100,
+  });
 
   useEffect(() => {
     setLocale(getLocaleFromCookie());
@@ -84,6 +95,15 @@ export default function ProfilePage() {
           outboundProxyEnabled: data?.outboundProxyEnabled === true,
           outboundProxyUrl: data?.outboundProxyUrl || "",
           outboundNoProxy: data?.outboundNoProxy || "",
+        });
+        setScraperForm({
+          proxyScraperEnabled: data?.proxyScraperEnabled === true,
+          proxyScraperRunOnStartup: data?.proxyScraperRunOnStartup === true,
+          proxyScraperIntervalMinutes: data?.proxyScraperIntervalMinutes || 60,
+          proxyScraperSourceIds: Array.isArray(data?.proxyScraperSourceIds) ? data.proxyScraperSourceIds : ["github", "free-proxy-list"],
+          proxyScraperActivateImported: data?.proxyScraperActivateImported !== false,
+          proxyScraperTestAfterImport: data?.proxyScraperTestAfterImport === true,
+          proxyScraperLimit: data?.proxyScraperLimit || 100,
         });
         setLoading(false);
       })
@@ -164,6 +184,69 @@ export default function ProfilePage() {
       setProxyStatus({ type: "error", message: "An error occurred" });
     } finally {
       setProxyTestLoading(false);
+    }
+  };
+
+  const updateProxyScraperSetting = (key, value) => {
+    setScraperForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const saveProxyScraperSettings = async () => {
+    setScraperLoading(true);
+    setScraperStatus({ type: "", message: "" });
+    try {
+      const payload = {
+        ...scraperForm,
+        proxyScraperIntervalMinutes: Math.max(5, parseInt(scraperForm.proxyScraperIntervalMinutes, 10) || 60),
+        proxyScraperLimit: Math.max(1, Math.min(1000, parseInt(scraperForm.proxyScraperLimit, 10) || 100)),
+      };
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettings((prev) => ({ ...prev, ...data }));
+        setScraperForm((prev) => ({ ...prev, ...payload }));
+        setScraperStatus({ type: "success", message: "Proxy scraper settings saved" });
+      } else {
+        setScraperStatus({ type: "error", message: data.error || "Failed to save proxy scraper settings" });
+      }
+    } catch (err) {
+      setScraperStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setScraperLoading(false);
+    }
+  };
+
+  const runProxyScraperNow = async () => {
+    setScraperLoading(true);
+    setScraperStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/proxy-pools/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceIds: scraperForm.proxyScraperSourceIds,
+          activateImported: scraperForm.proxyScraperActivateImported,
+          testAfterImport: scraperForm.proxyScraperTestAfterImport,
+          limit: scraperForm.proxyScraperLimit,
+          useScheduler: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await reloadSettings();
+        const s = data.summary || {};
+        setScraperStatus({ type: "success", message: `Scrape complete: ${s.created || 0} created, ${s.merged || 0} merged, ${(s.skippedUnsupported || 0) + (s.skippedInvalid || 0)} skipped` });
+      } else {
+        setScraperStatus({ type: "error", message: data.error || "Proxy scrape failed" });
+      }
+    } catch (err) {
+      setScraperStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setScraperLoading(false);
     }
   };
 
@@ -1092,6 +1175,135 @@ export default function ProfilePage() {
             {proxyStatus.message && (
               <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-red-500" : "text-green-500"} pt-2 border-t border-border/50`}>
                 {proxyStatus.message}
+              </p>
+            )}
+          </div>
+        </Card>
+
+        {/* Proxy Scraper */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
+              <span className="material-symbols-outlined text-[20px]">travel_explore</span>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold">Proxy Scraper</h3>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start sm:items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Auto scrape proxies</p>
+                <p className="text-xs sm:text-sm text-text-muted">Periodically collect public HTTP proxies and save them into Proxy Pools.</p>
+              </div>
+              <Toggle
+                checked={scraperForm.proxyScraperEnabled === true}
+                onChange={() => updateProxyScraperSetting("proxyScraperEnabled", !scraperForm.proxyScraperEnabled)}
+                disabled={loading || scraperLoading}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/50">
+              <div className="flex flex-col gap-2">
+                <label className="font-medium text-sm sm:text-base">Interval minutes</label>
+                <Input
+                  type="number"
+                  min="5"
+                  max="1440"
+                  value={scraperForm.proxyScraperIntervalMinutes}
+                  onChange={(e) => updateProxyScraperSetting("proxyScraperIntervalMinutes", e.target.value)}
+                  disabled={loading || scraperLoading}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="font-medium text-sm sm:text-base">Max proxies per run</label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={scraperForm.proxyScraperLimit}
+                  onChange={(e) => updateProxyScraperSetting("proxyScraperLimit", e.target.value)}
+                  disabled={loading || scraperLoading}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+              <p className="font-medium text-sm sm:text-base">Sources</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  ["github", "GitHub proxy lists"],
+                  ["free-proxy-list", "Free Proxy List website"],
+                ].map(([id, label]) => {
+                  const checked = scraperForm.proxyScraperSourceIds.includes(id);
+                  return (
+                    <label key={id} className="flex items-center gap-2 rounded-lg border border-border bg-bg p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => updateProxyScraperSetting(
+                          "proxyScraperSourceIds",
+                          checked
+                            ? scraperForm.proxyScraperSourceIds.filter((item) => item !== id)
+                            : [...scraperForm.proxyScraperSourceIds, id]
+                        )}
+                        disabled={loading || scraperLoading}
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-xs sm:text-sm text-text-muted">HTTP/HTTPS entries are imported as normal HTTP proxy pools. SOCKS entries are skipped for now.</p>
+            </div>
+
+            <div className="flex flex-col gap-3 pt-2 border-t border-border/50">
+              <div className="flex items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="font-medium text-sm sm:text-base">Run on startup</p>
+                  <p className="text-xs sm:text-sm text-text-muted">Run one scrape when the app process starts.</p>
+                </div>
+                <Toggle
+                  checked={scraperForm.proxyScraperRunOnStartup === true}
+                  onChange={() => updateProxyScraperSetting("proxyScraperRunOnStartup", !scraperForm.proxyScraperRunOnStartup)}
+                  disabled={loading || scraperLoading}
+                />
+              </div>
+              <div className="flex items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="font-medium text-sm sm:text-base">Activate imported proxies</p>
+                  <p className="text-xs sm:text-sm text-text-muted">Imported proxies are available for use immediately.</p>
+                </div>
+                <Toggle
+                  checked={scraperForm.proxyScraperActivateImported === true}
+                  onChange={() => updateProxyScraperSetting("proxyScraperActivateImported", !scraperForm.proxyScraperActivateImported)}
+                  disabled={loading || scraperLoading}
+                />
+              </div>
+            </div>
+
+            {settings.proxyScraperLastRunAt && (
+              <div className="rounded-lg border border-border bg-bg p-3 text-xs sm:text-sm text-text-muted">
+                <p>Last run: {new Date(settings.proxyScraperLastRunAt).toLocaleString()}</p>
+                {settings.proxyScraperLastSummary && (
+                  <p>
+                    Created {settings.proxyScraperLastSummary.created || 0}, merged {settings.proxyScraperLastSummary.merged || 0}, skipped {(settings.proxyScraperLastSummary.skippedUnsupported || 0) + (settings.proxyScraperLastSummary.skippedInvalid || 0)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/50">
+              <Button variant="primary" onClick={saveProxyScraperSettings} loading={scraperLoading} disabled={scraperForm.proxyScraperSourceIds.length === 0} className="w-full sm:w-auto">
+                Save scraper settings
+              </Button>
+              <Button variant="outline" onClick={runProxyScraperNow} loading={scraperLoading} disabled={scraperForm.proxyScraperSourceIds.length === 0} className="w-full sm:w-auto">
+                Run now
+              </Button>
+            </div>
+
+            {scraperStatus.message && (
+              <p className={`text-xs sm:text-sm ${scraperStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                {scraperStatus.message}
               </p>
             )}
           </div>

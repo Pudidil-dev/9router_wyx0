@@ -15,6 +15,7 @@ import {
 } from "@/lib/tunnel";
 import { getMitmStatus, startMitm, loadEncryptedPassword, initDbHooks, restoreToolDNS, removeAllDNSEntriesSync } from "@/mitm/manager";
 import { syncToJson as syncMitmAliasCache } from "@/lib/mitmAliasCache";
+import { initializeProxyScraperScheduler } from "@/shared/services/proxyScraperScheduler";
 
 // Inject correct paths and DB hooks into manager.js (CJS) from ESM context
 (function bootstrapMitm() {
@@ -88,6 +89,7 @@ export async function initializeApp() {
     startWatchdog();
     startNetworkMonitor();
     autoStartMitm();
+    initializeProxyScraperScheduler().catch((e) => console.log("[InitApp] Proxy scraper scheduler failed:", e.message));
   } catch (error) {
     console.error("[InitApp] Error:", error);
   }

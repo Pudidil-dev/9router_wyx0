@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { resetComboRotation } from "open-sse/services/combo.js";
+import { refreshProxyScraperSchedule } from "@/shared/services/proxyScraperScheduler";
 import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +89,14 @@ export async function PATCH(request) {
       Object.prototype.hasOwnProperty.call(body, "comboStrategies")
     ) {
       resetComboRotation();
+    }
+
+    if (
+      Object.keys(body).some((key) => key.startsWith("proxyScraper") && key !== "proxyScraperLastRunAt" && key !== "proxyScraperLastSummary")
+    ) {
+      refreshProxyScraperSchedule().catch((error) => {
+        console.log("Error refreshing proxy scraper schedule:", error.message);
+      });
     }
 
     const { password, oidcClientSecret, ...safeSettings } = settings;

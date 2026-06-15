@@ -70,6 +70,7 @@ export async function createProxyPool(data) {
     testStatus: data.testStatus || "unknown",
     lastTestedAt: data.lastTestedAt || null,
     lastError: data.lastError || null,
+    ...Object.fromEntries(Object.entries(data).filter(([key]) => !["id", "name", "proxyUrl", "noProxy", "type", "isActive", "strictProxy", "testStatus", "lastTestedAt", "lastError", "createdAt", "updatedAt"].includes(key))),
     createdAt: now,
     updatedAt: now,
   };

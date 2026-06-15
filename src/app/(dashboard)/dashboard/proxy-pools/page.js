@@ -34,6 +34,7 @@ export default function ProxyPoolsPage() {
   const [loading, setLoading] = useState(true);
   const [showFormModal, setShowFormModal] = useState(false);
   const [showBatchImportModal, setShowBatchImportModal] = useState(false);
+  const [showScrapeModal, setShowScrapeModal] = useState(false);
   const [showVercelModal, setShowVercelModal] = useState(false);
   const [showCloudflareModal, setShowCloudflareModal] = useState(false);
   const [showDenoModal, setShowDenoModal] = useState(false);
@@ -41,6 +42,8 @@ export default function ProxyPoolsPage() {
   const [editingProxyPool, setEditingProxyPool] = useState(null);
   const [formData, setFormData] = useState(normalizeFormData());
   const [batchImportText, setBatchImportText] = useState("");
+  const [scrapeForm, setScrapeForm] = useState({ source: "all", limit: 100, activateImported: true, testAfterImport: false });
+  const [scrapeSummary, setScrapeSummary] = useState(null);
   const [vercelForm, setVercelForm] = useState({ vercelToken: "", projectName: "vercel-relay" });
   const [cloudflareForm, setCloudflareForm] = useState({ accountId: "", apiToken: "", projectName: "cloudflare-relay" });
   const [denoForm, setDenoForm] = useState({ denoToken: "", orgDomain: "", projectName: "" });
@@ -359,6 +362,49 @@ export default function ProxyPoolsPage() {
     setShowBatchImportModal(false);
   };
 
+  const openScrapeModal = () => {
+    setScrapeSummary(null);
+    setScrapeForm({ source: "all", limit: 100, activateImported: true, testAfterImport: false });
+    setShowScrapeModal(true);
+  };
+
+  const closeScrapeModal = () => {
+    if (importing) return;
+    setShowScrapeModal(false);
+  };
+
+  const handleScrapeProxies = async () => {
+    setImporting(true);
+    setScrapeSummary(null);
+    try {
+      const sourceIds = scrapeForm.source === "all" ? ["github", "free-proxy-list"] : [scrapeForm.source];
+      const res = await fetch("/api/proxy-pools/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceIds,
+          limit: Number(scrapeForm.limit) || 100,
+          activateImported: scrapeForm.activateImported === true,
+          testAfterImport: scrapeForm.testAfterImport === true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify.error(data.error || "Proxy scrape failed");
+        return;
+      }
+      setScrapeSummary(data.summary || null);
+      await fetchProxyPools();
+      const s = data.summary || {};
+      notify.success(`Scrape complete: ${s.created || 0} created, ${s.merged || 0} merged, ${(s.skippedUnsupported || 0) + (s.skippedInvalid || 0)} skipped`);
+    } catch (error) {
+      console.log("Error scraping proxies:", error);
+      notify.error("Proxy scrape failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const openVercelModal = () => {
     setVercelForm({ vercelToken: "", projectName: "vercel-relay" });
     setShowVercelModal(true);
@@ -646,6 +692,9 @@ export default function ProxyPoolsPage() {
             )}
           </div>
 
+          <Button size="sm" variant="secondary" icon="travel_explore" onClick={openScrapeModal}>
+            Scrape Proxies
+          </Button>
           <Button size="sm" variant="secondary" icon="upload" onClick={openBatchImportModal}>
             Batch Import
           </Button>
@@ -739,6 +788,9 @@ export default function ProxyPoolsPage() {
                     {pool.type === "cloudflare" && (
                       <Badge variant="default" size="sm">cloudflare relay</Badge>
                     )}
+                    {pool.sourceKind === "scraper" && (
+                      <Badge variant="default" size="sm">scraped</Badge>
+                    )}
                     <Badge variant="default" size="sm">
                       {pool.boundConnectionCount || 0} bound
                     </Badge>
@@ -806,6 +858,85 @@ export default function ProxyPoolsPage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        isOpen={showScrapeModal}
+        title="Scrape Proxies"
+        onClose={closeScrapeModal}
+      >
+        <div className="flex flex-col gap-4">
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-xs text-text-muted">
+            Auto-scrape public proxy lists and save usable HTTP proxies directly into Proxy Pools. Manual add and batch import remain unchanged. SOCKS entries are skipped for now.
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-text-main">Source</label>
+            <select
+              value={scrapeForm.source}
+              onChange={(e) => setScrapeForm((prev) => ({ ...prev, source: e.target.value }))}
+              className="w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-text-main focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 dark:border-white/10 dark:bg-white/5"
+              disabled={importing}
+            >
+              <option value="all">All sources</option>
+              <option value="github">GitHub proxy lists</option>
+              <option value="free-proxy-list">Free Proxy List website</option>
+            </select>
+          </div>
+
+          <Input
+            label="Max proxies to save"
+            type="number"
+            min="1"
+            max="1000"
+            value={scrapeForm.limit}
+            onChange={(e) => setScrapeForm((prev) => ({ ...prev, limit: e.target.value }))}
+            disabled={importing}
+            hint="The scraper may fetch more rows, but only saves up to this limit after filtering and dedupe."
+          />
+
+          <div className="flex flex-col gap-3 rounded-lg border border-border/50 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium text-sm">Activate imported proxies</p>
+              <p className="text-xs text-text-muted">When enabled, scraped proxies can be used immediately by assignments.</p>
+            </div>
+            <Toggle
+              checked={scrapeForm.activateImported === true}
+              onChange={() => setScrapeForm((prev) => ({ ...prev, activateImported: !prev.activateImported }))}
+              disabled={importing}
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-lg border border-border/50 p-3 sm:flex-row sm:items-center sm:justify-between opacity-70">
+            <div>
+              <p className="font-medium text-sm">Test after import</p>
+              <p className="text-xs text-text-muted">Reserved for batch health checks. Leave off for faster imports.</p>
+            </div>
+            <Toggle
+              checked={scrapeForm.testAfterImport === true}
+              onChange={() => setScrapeForm((prev) => ({ ...prev, testAfterImport: !prev.testAfterImport }))}
+              disabled={importing}
+            />
+          </div>
+
+          {scrapeSummary && (
+            <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-3 text-xs text-text-muted">
+              <p className="font-medium text-text-main">Last scrape summary</p>
+              <p>Fetched: {scrapeSummary.fetched || 0} · Saved: {scrapeSummary.normalized || 0}</p>
+              <p>Created: {scrapeSummary.created || 0} · Merged: {scrapeSummary.merged || 0}</p>
+              <p>Skipped unsupported: {scrapeSummary.skippedUnsupported || 0} · Invalid: {scrapeSummary.skippedInvalid || 0} · Failed: {scrapeSummary.failed || 0}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button fullWidth onClick={handleScrapeProxies} disabled={importing}>
+              {importing ? "Scraping..." : "Scrape now"}
+            </Button>
+            <Button fullWidth variant="ghost" onClick={closeScrapeModal} disabled={importing}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={showBatchImportModal}

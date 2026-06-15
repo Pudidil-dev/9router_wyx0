@@ -37,6 +37,15 @@ const DEFAULT_SETTINGS = {
   cavemanEnabled: false,
   cavemanLevel: "full",
   automationBrowser: "playwright-chromium",
+  proxyScraperEnabled: false,
+  proxyScraperRunOnStartup: false,
+  proxyScraperIntervalMinutes: 60,
+  proxyScraperSourceIds: ["github", "free-proxy-list"],
+  proxyScraperActivateImported: true,
+  proxyScraperTestAfterImport: false,
+  proxyScraperLimit: 100,
+  proxyScraperLastRunAt: null,
+  proxyScraperLastSummary: null,
 };
 
 async function readRaw() {
