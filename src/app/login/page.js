@@ -155,7 +155,7 @@ export default function LoginPage() {
               WebkitTextFillColor: "transparent",
             }}
           >
-            Wyx Version
+            Wyx0 Version
           </h2>
           <p className="text-text-muted">
             {authMode === "oidc" && oidcConfigured

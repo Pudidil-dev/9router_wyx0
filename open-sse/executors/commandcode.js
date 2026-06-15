@@ -1,10 +1,10 @@
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { convertCommandCodeToOpenAI } from "../translator/response/commandcode-to-openai.js";
 
 /**
- * CommandCodeExecutor — talks to https://api.commandcode.ai/alpha/generate
+ * CommandCodeExecutor — talks to https://api.commandcode.ai/alpha/generateIPIP
  *
  * Auth: Bearer <user_xxx> API key (stored as the connection's apiKey).
  * Adds the per-request `x-session-id` header expected by CommandCode upstream.
@@ -20,15 +20,24 @@ export class CommandCodeExecutor extends BaseExecutor {
   }
 
   transformRequest(model, body, stream, credentials) {
-    body.stream = true;
-    return body;
+    const sessionId = randomCommandCodeSessionId();
+    this._lastSessionId = sessionId;
+    return {
+      ...body,
+      stream: true,
+      session_id: body.session_id || sessionId,
+      params: body.params && typeof body.params === "object"
+        ? { ...body.params, session_id: body.params.session_id || sessionId }
+        : body.params,
+    };
   }
 
   buildHeaders(credentials, stream = true) {
+    const sessionId = this._lastSessionId || randomCommandCodeSessionId();
     const headers = {
       "Content-Type": "application/json",
       ...(this.config.headers || {}),
-      "x-session-id": randomUUID(),
+      "X-Session-ID": sessionId,
     };
 
     const token = credentials?.apiKey || credentials?.accessToken;
@@ -44,6 +53,14 @@ export class CommandCodeExecutor extends BaseExecutor {
     result.response = wrapNdjsonAsOpenAISse(result.response, opts.model);
     return result;
   }
+}
+
+function randomCommandCodeSessionId() {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = randomBytes(32);
+  let out = "";
+  for (const byte of bytes) out += alphabet[byte % alphabet.length];
+  return out;
 }
 
 function wrapNdjsonAsOpenAISse(originalResponse, model) {

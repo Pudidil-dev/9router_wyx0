@@ -84,6 +84,43 @@ export function convertCommandCodeToOpenAI(chunk, state) {
   const out = [];
 
   switch (event.type) {
+    case "content_block_delta": {
+      const delta = event.delta || {};
+      const text = delta.text || event.text || "";
+      if (!text || (delta.type && delta.type !== "text_delta")) break;
+      const chunkDelta = state.chunkIndex === 0 ? { role: "assistant", content: text } : { content: text };
+      state.chunkIndex++;
+      out.push(makeChunk(state, chunkDelta));
+      break;
+    }
+    case "message_delta": {
+      if (event.usage) {
+        state.usage = {
+          inputTokens: event.usage.input_tokens ?? event.usage.inputTokens ?? 0,
+          outputTokens: event.usage.output_tokens ?? event.usage.outputTokens ?? 0,
+          totalTokens: event.usage.total_tokens ?? event.usage.totalTokens,
+        };
+      }
+      if (event.delta?.stop_reason || event.stop_reason) {
+        state.finishReason = mapFinishReason(event.delta?.stop_reason || event.stop_reason);
+      }
+      break;
+    }
+    case "message_stop": {
+      const finishReason = state.finishReason || mapFinishReason(event.stop_reason || event.finishReason || "stop");
+      const finalChunk = makeChunk(state, {}, finishReason);
+      if (state.usage) {
+        const input = state.usage.inputTokens ?? 0;
+        const output = state.usage.outputTokens ?? 0;
+        finalChunk.usage = {
+          prompt_tokens: input,
+          completion_tokens: output,
+          total_tokens: state.usage.totalTokens ?? (input + output),
+        };
+      }
+      out.push(finalChunk);
+      break;
+    }
     case "text-delta": {
       const text = event.text || event.delta || "";
       if (!text) break;

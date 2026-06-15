@@ -20,6 +20,7 @@ import {
   CODEBUDDY_CONFIG,
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
+import { buildAutomationMetadataOnError, buildAutomationMetadataOnSuccess, classifyProviderError } from "@/lib/providerAutomation/accountState";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -685,14 +686,79 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         const valid = !!(data && data.user);
         return { valid, error: valid ? null : "Session expired — re-paste cookie" };
       }
-      case "opencode-go": {
-        const res = await fetchWithConnectionProxy("https://opencode.ai/zen/go/v1/chat/completions", {
+      case "opencode": {
+        const res = await fetchWithConnectionProxy("https://opencode.ai/zen/v1/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${connection.apiKey}` },
-          body: JSON.stringify({ model: getDefaultModel("opencode-go"), messages: [{ role: "user", content: "ping" }], max_tokens: 1, stream: false }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${connection.apiKey}`,
+            "x-opencode-client": "desktop",
+          },
+          body: JSON.stringify({ model: getDefaultModel("opencode") || "auto", messages: [{ role: "user", content: "ping" }], max_tokens: 1, stream: false }),
         }, effectiveProxy);
+        const text = res.ok ? "" : await res.text().catch(() => "");
         const valid = res.status !== 401 && res.status !== 403;
-        return { valid, error: valid ? null : "Invalid API key" };
+        const classified = valid ? null : classifyProviderError(res.status, text, Object.fromEntries(res.headers.entries()));
+        return {
+          valid,
+          error: valid ? null : (classified.message || "Invalid API key"),
+          automationProviderSpecificData: valid
+            ? buildAutomationMetadataOnSuccess(connection.providerSpecificData || {})
+            : buildAutomationMetadataOnError(connection.providerSpecificData || {}, classified),
+        };
+      }
+      case "opencode-go": {
+        const res = await fetchWithConnectionProxy("https://opencode.ai/zen/go/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${connection.apiKey}`,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({ model: getDefaultModel("opencode-go"), messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }], max_tokens: 1, stream: false }),
+        }, effectiveProxy);
+        const text = res.ok ? "" : await res.text().catch(() => "");
+        const valid = res.status !== 401 && res.status !== 403;
+        const classified = valid ? null : classifyProviderError(res.status, text, Object.fromEntries(res.headers.entries()));
+        return {
+          valid,
+          error: valid ? null : (classified.message || "Invalid API key"),
+          automationProviderSpecificData: valid
+            ? buildAutomationMetadataOnSuccess(connection.providerSpecificData || {})
+            : buildAutomationMetadataOnError(connection.providerSpecificData || {}, classified),
+        };
+      }
+      case "commandcode": {
+        const sessionId = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
+        const body = {
+          model: getDefaultModel("commandcode"),
+          messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+          content: [{ type: "text", text: "ping" }],
+          stream: false,
+          max_tokens: 1,
+          session_id: sessionId,
+        };
+        const res = await fetchWithConnectionProxy("https://api.commandcode.ai/alpha/generateIP", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${connection.apiKey}`,
+            "X-Session-ID": sessionId,
+            "x-command-code-version": "0.25.7",
+            "x-cli-environment": "cli",
+          },
+          body: JSON.stringify(body),
+        }, effectiveProxy);
+        const text = res.ok ? "" : await res.text().catch(() => "");
+        const valid = res.status !== 401 && res.status !== 403;
+        const classified = valid ? null : classifyProviderError(res.status, text, Object.fromEntries(res.headers.entries()));
+        return {
+          valid,
+          error: valid ? null : (classified.message || "Invalid API key"),
+          automationProviderSpecificData: valid
+            ? buildAutomationMetadataOnSuccess(connection.providerSpecificData || {})
+            : buildAutomationMetadataOnError(connection.providerSpecificData || {}, classified),
+        };
       }
       case "xiaomi-mimo":
       case "xiaomi-tokenplan": {
@@ -748,6 +814,13 @@ export async function testSingleConnection(id) {
     lastError: result.valid ? null : result.error,
     lastErrorAt: result.valid ? null : new Date().toISOString(),
   };
+
+  if (result.automationProviderSpecificData) {
+    updateData.providerSpecificData = {
+      ...(connection.providerSpecificData || {}),
+      ...result.automationProviderSpecificData,
+    };
+  }
 
   if (result.refreshed && result.newTokens) {
     if (result.newTokens.accessToken) updateData.accessToken = result.newTokens.accessToken;

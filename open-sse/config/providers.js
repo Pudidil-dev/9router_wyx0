@@ -284,7 +284,7 @@ export const PROVIDERS = {
     format: "openai"
   },
   commandcode: {
-    baseUrl: "https://api.commandcode.ai/alpha/generate",
+    baseUrl: "https://api.commandcode.ai/alpha/generateIP",
     format: "commandcode",
     headers: {
       "x-command-code-version": "0.25.7",
@@ -398,14 +398,19 @@ export const PROVIDERS = {
     }
   },
   opencode: {
-    baseUrl: "https://opencode.ai",
+    baseUrl: "https://opencode.ai/zen/v1/chat/completions",
+    format: "openai",
+    headers: { "x-opencode-client": "desktop" }
+  },
+  "opencode-free": {
+    baseUrl: "https://opencode.ai/zen/v1/chat/completions",
     format: "openai",
     headers: { "x-opencode-client": "desktop" },
     noAuth: true
   },
   "opencode-go": {
-    baseUrl: "https://opencode.ai/zen/go/v1/chat/completions",
-    format: "openai",
+    baseUrl: "https://opencode.ai/zen/go/v1/messages",
+    format: "claude",
     headers: {}
   },
   "grok-web": {

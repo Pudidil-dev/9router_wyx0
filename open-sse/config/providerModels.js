@@ -237,7 +237,10 @@ export const PROVIDER_MODELS = {
     { id: "minimax-m2.7", name: "MiniMax M2.7", targetFormat: "claude" },
     { id: "minimax-m2.5", name: "MiniMax M2.5", targetFormat: "claude" },
   ],
-  oc: [  // OpenCode
+  oc: [  // OpenCode API key
+    { id: "auto", name: "OpenCode Auto" },
+  ],
+  ocf: [  // OpenCode Free
     // { id: "nemotron-3-super-free", name: "Nemotron 3 Super" },
     // { id: "qwen3.6-plus-free", name: "Qwen 3.6 Plus" },
     // { id: "big-pickle", name: "Big Pickle", targetFormat: "claude" },
@@ -943,6 +946,7 @@ const OAUTH_ALIASES = {
   kilocode: "kc",
   cline: "cl",
   opencode: "oc",
+  "opencode-free": "ocf",
   qoder: "qd",
   codebuddy: "cb",
   "1min-ai": "1min",

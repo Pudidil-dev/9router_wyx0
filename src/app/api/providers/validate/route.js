@@ -397,12 +397,16 @@ export async function POST(request) {
         }
 
         case "opencode-go": {
-          const res = await fetch("https://opencode.ai/zen/go/v1/chat/completions", {
+          const res = await fetch("https://opencode.ai/zen/go/v1/messages", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`,
+              "anthropic-version": "2023-06-01",
+            },
             body: JSON.stringify({
               model: getDefaultModel("opencode-go"),
-              messages: [{ role: "user", content: "ping" }],
+              messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
               max_tokens: 1,
               stream: false,
             }),
@@ -414,17 +418,20 @@ export async function POST(request) {
         case "commandcode": {
           const cfg = PROVIDERS.commandcode;
           const model = getDefaultModel("commandcode");
+          const sessionId = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
           const payload = openaiToCommandCode(model, {
             messages: [{ role: "user", content: "ping" }],
             max_tokens: 1,
             stream: false,
           }, false);
+          payload.session_id = sessionId;
+          if (payload.params) payload.params.session_id = sessionId;
           const res = await fetch(cfg.baseUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...(cfg.headers || {}),
-              "x-session-id": crypto.randomUUID(),
+              "X-Session-ID": sessionId,
               "Authorization": `Bearer ${apiKey}`,
             },
             body: JSON.stringify(payload),

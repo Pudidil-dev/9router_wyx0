@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, KiroOAuthWrapper, Modal, OAuthModal } from "@/shared/components";
-import { FREE_PROVIDERS } from "@/shared/constants/providers";
+import { AI_PROVIDERS } from "@/shared/constants/providers";
 
 function getConnectionLabel(count) {
   return `${count} connection${count === 1 ? "" : "s"}`;
@@ -400,7 +400,6 @@ function OneMinAutomationPanel({ onRefresh }) {
   );
 }
 
-
 const AUTOMATION_PROVIDERS = [
   {
     id: "kiro",
@@ -466,7 +465,7 @@ export default function AutomationPage() {
   }, []);
 
   const activeProvider = AUTOMATION_PROVIDERS.find((provider) => provider.id === activeProviderId) || AUTOMATION_PROVIDERS[0];
-  const providerInfo = FREE_PROVIDERS[activeProvider.id] || { id: activeProvider.id, name: activeProvider.label };
+  const providerInfo = AI_PROVIDERS[activeProvider.id] || { id: activeProvider.id, name: activeProvider.label };
   const ProviderPanel = activeProvider.component;
   const providerCounts = useMemo(() => {
     const counts = {};

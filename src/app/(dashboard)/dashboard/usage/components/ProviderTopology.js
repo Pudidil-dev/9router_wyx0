@@ -19,9 +19,10 @@ function getProviderConfig(providerId) {
   return AI_PROVIDERS[providerId] || { color: "#6b7280", name: providerId };
 }
 
-// Use local provider images from /public/providers/
+// Use configured provider images first, then local provider images from /public/providers/
 function getProviderImageUrl(providerId) {
-  return `/providers/${providerId}.png`;
+  const config = getProviderConfig(providerId);
+  return config.image || `/providers/${providerId}.png`;
 }
 
 // Custom provider node - rectangle with image + name

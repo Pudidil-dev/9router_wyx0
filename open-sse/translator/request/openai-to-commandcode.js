@@ -11,7 +11,6 @@
  */
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
-import { randomUUID } from "crypto";
 
 function flattenText(content) {
   if (content == null) return "";
@@ -147,23 +146,14 @@ export function openaiToCommandCode(model, body, stream /* , credentials */) {
   if (tools) params.tools = tools;
   if (body.top_p != null) params.top_p = body.top_p;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const content = [];
+  for (const message of body.messages || []) {
+    if (message?.role === "user") content.push(...toContentBlocks(message.content));
+  }
 
   return {
-    threadId: randomUUID(),
-    memory: "",
-    config: {
-      workingDir: process.cwd(),
-      date: today,
-      environment: process.platform,
-      structure: [],
-      isGitRepo: false,
-      currentBranch: "",
-      mainBranch: "",
-      gitStatus: "",
-      recentCommits: [],
-    },
-    params,
+    ...params,
+    content: content.length ? content : undefined,
   };
 }
 

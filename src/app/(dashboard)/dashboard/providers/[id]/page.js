@@ -1374,7 +1374,7 @@ export default function ProviderDetailPage() {
     if (isAnthropicCompatible) {
       return "/providers/anthropic-m.png";
     }
-    return `/providers/${providerInfo.id}.png`;
+    return providerInfo.image || `/providers/${providerInfo.id}.png`;
   };
 
   return (
