@@ -88,7 +88,7 @@ jobs:
                 .map((line) => line.trim())
                 .filter(Boolean);
               if (items.length === 0) return "";
-              return [`[${label}]`, ...items.map((item) => `● ${item}`)].join("\n");
+              return [`[${label}]`, ...items.map((item) => `- ${item}`)].join("\n");
             };
 
             const sections = [
@@ -110,8 +110,11 @@ jobs:
             const formattedUpdateLabel = updateLabel.startsWith("v") ? updateLabel : `v${updateLabel}`;
             const heading = [prefix, formattedUpdateLabel].filter(Boolean).join(" ");
             const messageLines = [];
-            if (mentionEveryone) messageLines.push("@everyone");
-            messageLines.push(`**${heading}**`);
+            if (mentionEveryone) {
+              messageLines.push("@everyone");
+              messageLines.push("");
+            }
+            messageLines.push(`## ${heading}`);
             messageLines.push("");
             messageLines.push(descriptionParts.join("\n\n"));
 

@@ -89,3 +89,6 @@ pw-test.mjs
 repo.tar
 chat.log
 scrapper-proxy/
+scripts/discord-announcement.html
+.github/workflows/discord-changelog.yml
+chat.txt
