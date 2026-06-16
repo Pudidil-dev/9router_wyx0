@@ -9,6 +9,7 @@ export { default as Avatar } from "./Avatar";
 export { default as Badge } from "./Badge";
 export { default as BulkAccountAutomationModal } from "./BulkAccountAutomationModal";
 export { default as ExperimentalBadge } from "./ExperimentalBadge";
+export { default as ExperimentalLifecycleDetails } from "./ExperimentalLifecycleDetails";
 export { default as Toggle } from "./Toggle";
 export { default as ThemeToggle } from "./ThemeToggle";
 export { ThemeProvider } from "./ThemeProvider";

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GeminiWebCookieModal, CodeBuddyQuotaCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal, Pagination, ExperimentalBadge } from "@/shared/components";
+import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GeminiWebCookieModal, CodeBuddyQuotaCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal, Pagination, ExperimentalBadge, ExperimentalLifecycleDetails } from "@/shared/components";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS, THINKING_CONFIG } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -1454,6 +1454,43 @@ export default function ProviderDetailPage() {
           <span className="material-symbols-outlined text-[16px] text-amber-500 mt-0.5 shrink-0">science</span>
           <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">{providerInfo.experimentalNotice}</p>
         </div>
+      )}
+
+      {providerId === "gemini-web" && (
+        <ExperimentalLifecycleDetails
+          title="What to expect from a Gemini Web session"
+          subtitle="Two things will eventually break this connection. The first is harmless and easy to fix. The second is harsher — be ready for it."
+          sections={[
+            {
+              heading: "1. Cookie expiry (mild — every 1–4 weeks)",
+              body: "Google rotates the __Secure-1PSID cookie on a sliding TTL. When it lapses you'll see 401/403 errors. Click \"Re-authenticate\" and paste a fresh cURL — the connection updates in place, no account loss.",
+            },
+            {
+              heading: "2. Account flag/ban (harsher — depends on usage)",
+              body: "Heavy automated use, datacenter IPs, or cookie reuse across many IPs trigger Google's bot-detection. Symptoms: persistent CAPTCHA pages, silent Pro→Flash downgrade, or full account lock. The cookie still looks valid but every request fails. Fix: make a new burner account and start over.",
+              items: [
+                "Casual personal use (~50 req/day, same IP as cookie capture): account lasts 1–3 months",
+                "Heavy daily use (a few hundred req/day, same IP): 3–6 weeks",
+                "Self-hosted on VPS with cookies captured from a different machine: 1–2 weeks (IP mismatch is the #1 ban trigger)",
+                "Multiple burner cookies pooled at the same VPS IP: days — they tend to fall together",
+              ],
+            },
+            {
+              heading: "How to make accounts last longer",
+              items: [
+                "Capture cookies from the same machine that runs 9Router (or use a residential proxy if running on a VPS)",
+                "Don't pool many burner accounts behind one IP",
+                "Avoid bursting — even spacing requests over minutes looks much more human than 20 in a second",
+                "Stick to gemini-3.5-flash on free accounts; requesting gemini-3.1-pro you don't actually have flags the account as bot-like",
+                "Re-paste cookies proactively every ~7 days even when validation is still green — looks like normal browsing behaviour",
+              ],
+            },
+            {
+              heading: "Treat it like Kiro/CodeBuddy",
+              body: "This is the same risk class as your other reverse-engineered providers. Re-paste cookies every few weeks, swap to a new burner every few months. Don't put it on the critical path of anything you can't afford to lose.",
+            },
+          ]}
+        />
       )}
 
       {providerInfo.notice?.text && !providerInfo.deprecated && !providerInfo.experimental && (
