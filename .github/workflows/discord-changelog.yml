@@ -41,7 +41,7 @@ on:
         required: false
         default: "npm update -g wyxrouter"
       color:
-        description: "Discord embed color as decimal integer"
+        description: "Unused legacy field kept for compatibility"
         required: false
         default: "5814783"
 
@@ -75,7 +75,6 @@ jobs:
             const extraNotes = process.env.EXTRA_NOTES.trim();
             const mentionEveryone = String(process.env.MENTION_EVERYONE).toLowerCase() === "true";
             const updateCommand = process.env.UPDATE_COMMAND.trim();
-            const color = Number.parseInt(process.env.COLOR, 10);
             const repo = process.env.GITHUB_REPOSITORY;
             const runUrl = `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
@@ -115,18 +114,18 @@ jobs:
             if (updateCommand) descriptionParts.push(["run", `\`${updateCommand}\``].join("\n"));
 
             const heading = [prefix, title, updateLabel].filter(Boolean).join(" ");
+            const messageLines = [];
+            if (mentionEveryone) messageLines.push("@everyone");
+            messageLines.push(heading);
+            messageLines.push("");
+            messageLines.push(descriptionParts.join("\n\n"));
+            messageLines.push("");
+            messageLines.push(runUrl);
+
             const payload = {
               username: "9Router WYx0",
-              content: mentionEveryone ? "@everyone" : undefined,
-              embeds: [
-                {
-                  title: heading,
-                  description: descriptionParts.join("\n\n"),
-                  color: Number.isFinite(color) ? color : 5814783,
-                  url: runUrl,
-                  timestamp: new Date().toISOString(),
-                },
-              ],
+              content: messageLines.join("\n").trim(),
+              allowed_mentions: mentionEveryone ? { parse: ["everyone"] } : { parse: [] },
             };
 
             const response = await fetch(webhookUrl, {
