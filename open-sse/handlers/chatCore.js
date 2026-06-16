@@ -281,7 +281,18 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   // Streaming response
   const { onStreamComplete, streamDetailId } = buildOnStreamComplete({ ...sharedCtx });
-  return handleStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, streamController, onStreamComplete, streamDetailId });
+  const retryProviderResponse = provider === "codebuddy"
+    ? async () => {
+      log?.debug?.("RETRY", `${provider.toUpperCase()} tiny completion retry`);
+      const retryResult = await executor.execute({ model, body: translatedBody, stream, credentials, signal: streamController.signal, log, proxyOptions });
+      providerUrl = retryResult.url;
+      providerHeaders = retryResult.headers;
+      finalBody = retryResult.transformedBody;
+      reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
+      return retryResult;
+    }
+    : null;
+  return handleStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, streamController, onStreamComplete, streamDetailId, retryProviderResponse });
 }
 
 export function isTokenExpiringSoon(expiresAt, bufferMs = 5 * 60 * 1000) {
