@@ -7,10 +7,6 @@ on:
         description: "WYx0 update label, e.g. 0.4.80-1"
         required: true
         default: "0.4.80-1"
-      title:
-        description: "Announcement title"
-        required: false
-        default: "9Router WYx0 Update"
       prefix:
         description: "Optional label before title, e.g. UPDATE, HOTFIX UPDATE, FEATURE UPDATE"
         required: false
@@ -67,7 +63,6 @@ jobs:
           async function main() {
             const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
             const updateLabel = process.env.UPDATE_LABEL.trim();
-            const title = process.env.TITLE.trim() || "9Router WYx0 Update";
             const prefix = process.env.PREFIX.trim();
             const newItems = process.env.NEW_ITEMS;
             const improvementItems = process.env.IMPROVEMENT_ITEMS;
@@ -75,8 +70,7 @@ jobs:
             const extraNotes = process.env.EXTRA_NOTES.trim();
             const mentionEveryone = String(process.env.MENTION_EVERYONE).toLowerCase() === "true";
             const updateCommand = process.env.UPDATE_COMMAND.trim();
-            const repo = process.env.GITHUB_REPOSITORY;
-            const runUrl = `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
 
             if (!webhookUrl) {
               console.error("Missing DISCORD_WEBHOOK_URL secret.");
@@ -113,14 +107,13 @@ jobs:
             if (extraNotes) descriptionParts.push(extraNotes);
             if (updateCommand) descriptionParts.push(["run", `\`${updateCommand}\``].join("\n"));
 
-            const heading = [prefix, title, updateLabel].filter(Boolean).join(" ");
+            const formattedUpdateLabel = updateLabel.startsWith("v") ? updateLabel : `v${updateLabel}`;
+            const heading = [prefix, formattedUpdateLabel].filter(Boolean).join(" ");
             const messageLines = [];
             if (mentionEveryone) messageLines.push("@everyone");
             messageLines.push(heading);
             messageLines.push("");
             messageLines.push(descriptionParts.join("\n\n"));
-            messageLines.push("");
-            messageLines.push(runUrl);
 
             const payload = {
               username: "9Router WYx0",
@@ -152,7 +145,6 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           UPDATE_LABEL: ${{ inputs.update_label }}
-          TITLE: ${{ inputs.title }}
           PREFIX: ${{ inputs.prefix }}
           NEW_ITEMS: ${{ inputs.new_items }}
           IMPROVEMENT_ITEMS: ${{ inputs.improvement_items }}
