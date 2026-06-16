@@ -11,10 +11,31 @@ on:
         description: "Announcement title"
         required: false
         default: "9Router WYx0 Update"
-      message:
-        description: "Short changelog message. Supports new lines."
-        required: true
-        default: "Describe what changed in this update."
+      prefix:
+        description: "Optional label before title, e.g. UPDATE, HOTFIX UPDATE, FEATURE UPDATE"
+        required: false
+        default: "UPDATE"
+      new_items:
+        description: "One item per line for [NEW]"
+        required: false
+        default: ""
+      improvement_items:
+        description: "One item per line for [IMPROVEMENT]"
+        required: false
+        default: ""
+      fix_items:
+        description: "One item per line for [FIX]"
+        required: false
+        default: ""
+      extra_notes:
+        description: "Optional freeform notes shown before the update command"
+        required: false
+        default: ""
+      mention_everyone:
+        description: "Mention @everyone in the webhook message"
+        required: false
+        type: boolean
+        default: false
       update_command:
         description: "Command users should run to update"
         required: false
@@ -47,7 +68,12 @@ jobs:
             const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
             const updateLabel = process.env.UPDATE_LABEL.trim();
             const title = process.env.TITLE.trim() || "9Router WYx0 Update";
-            const message = process.env.MESSAGE.trim();
+            const prefix = process.env.PREFIX.trim();
+            const newItems = process.env.NEW_ITEMS;
+            const improvementItems = process.env.IMPROVEMENT_ITEMS;
+            const fixItems = process.env.FIX_ITEMS;
+            const extraNotes = process.env.EXTRA_NOTES.trim();
+            const mentionEveryone = String(process.env.MENTION_EVERYONE).toLowerCase() === "true";
             const updateCommand = process.env.UPDATE_COMMAND.trim();
             const color = Number.parseInt(process.env.COLOR, 10);
             const repo = process.env.GITHUB_REPOSITORY;
@@ -63,29 +89,40 @@ jobs:
               process.exit(1);
             }
 
-            if (!message) {
-              console.error("message input is required.");
+            const formatBulletBlock = (label, raw) => {
+              const items = String(raw || "")
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+              if (items.length === 0) return "";
+              return [`[${label}]`, ...items.map((item) => `• ${item}`)].join("\n");
+            };
+
+            const sections = [
+              formatBulletBlock("NEW", newItems),
+              formatBulletBlock("IMPROVEMENT", improvementItems),
+              formatBulletBlock("FIX", fixItems),
+            ].filter(Boolean);
+
+            if (sections.length === 0 && !extraNotes && !updateCommand) {
+              console.error("Provide at least one changelog section, extra note, or update command.");
               process.exit(1);
             }
 
-            const fields = [];
+            const descriptionParts = [];
+            if (sections.length > 0) descriptionParts.push(sections.join("\n\n"));
+            if (extraNotes) descriptionParts.push(extraNotes);
+            if (updateCommand) descriptionParts.push(["run", `\`${updateCommand}\``].join("\n"));
 
-            if (updateCommand) {
-              fields.push({
-                name: "Update command",
-                value: `\`${updateCommand}\``,
-                inline: false,
-              });
-            }
-
+            const heading = [prefix, title, updateLabel].filter(Boolean).join(" ");
             const payload = {
               username: "9Router WYx0",
+              content: mentionEveryone ? "@everyone" : undefined,
               embeds: [
                 {
-                  title: `${title} ${updateLabel}`,
-                  description: message,
+                  title: heading,
+                  description: descriptionParts.join("\n\n"),
                   color: Number.isFinite(color) ? color : 5814783,
-                  fields,
                   url: runUrl,
                   timestamp: new Date().toISOString(),
                 },
@@ -117,6 +154,11 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           UPDATE_LABEL: ${{ inputs.update_label }}
           TITLE: ${{ inputs.title }}
-          MESSAGE: ${{ inputs.message }}
+          PREFIX: ${{ inputs.prefix }}
+          NEW_ITEMS: ${{ inputs.new_items }}
+          IMPROVEMENT_ITEMS: ${{ inputs.improvement_items }}
+          FIX_ITEMS: ${{ inputs.fix_items }}
+          EXTRA_NOTES: ${{ inputs.extra_notes }}
+          MENTION_EVERYONE: ${{ inputs.mention_everyone }}
           UPDATE_COMMAND: ${{ inputs.update_command }}
           COLOR: ${{ inputs.color }}
