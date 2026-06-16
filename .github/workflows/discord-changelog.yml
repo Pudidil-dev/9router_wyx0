@@ -105,7 +105,7 @@ jobs:
             const descriptionParts = [];
             if (sections.length > 0) descriptionParts.push(sections.join("\n\n"));
             if (extraNotes) descriptionParts.push(extraNotes);
-            if (updateCommand) descriptionParts.push(["run", `\`${updateCommand}\``].join("\n"));
+            if (updateCommand) descriptionParts.push(["run", `\`\`\`\n${updateCommand}\n\`\`\``].join("\n"));
 
             const formattedUpdateLabel = updateLabel.startsWith("v") ? updateLabel : `v${updateLabel}`;
             const heading = [prefix, formattedUpdateLabel].filter(Boolean).join(" ");
