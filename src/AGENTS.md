@@ -16,7 +16,7 @@
 - Keep server-only credentials and filesystem access out of client components.
 - Preserve the boundary between application routes in `src/app`, application orchestration in `src/sse`, and provider-neutral runtime behavior in `open-sse`.
 - Reuse shared constants, stores, hooks, and UI components instead of duplicating cross-dashboard behavior.
-- Shared bulk automation components may expose provider-specific copy and worker limits; keep heavyweight browser providers conservative by default.
+- Shared bulk automation components may expose provider-specific copy, worker limits, and device-based worker recommendations; keep heavyweight browser providers conservative by default.
 - Document durable changes to source ownership or runtime flow in this file and, when architectural, in `docs/ARCHITECTURE.md`.
 
 ## Work Guidance

@@ -14,6 +14,46 @@ const DEFAULT_CONCURRENCY = 4;
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running", "needs_manual"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
+function getRecommendedConcurrency({ defaultConcurrency, maxConcurrency }) {
+  if (typeof navigator === "undefined") {
+    return {
+      value: Math.min(maxConcurrency, Math.max(1, defaultConcurrency)),
+      details: "Browser fallback until server capacity is available.",
+      source: "browser",
+    };
+  }
+
+  const cores = Number(navigator.hardwareConcurrency) || 4;
+  const memory = Number(navigator.deviceMemory) || null;
+  const isMobile = Boolean(navigator.userAgentData?.mobile) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || "");
+  const cpuLimit = cores >= 12 ? 6 : cores >= 8 ? 4 : cores >= 4 ? 3 : 1;
+  const memoryLimit = memory === null ? cpuLimit : memory >= 16 ? 6 : memory >= 8 ? 4 : memory >= 4 ? 3 : 1;
+  const mobileLimit = isMobile ? 2 : maxConcurrency;
+  const value = Math.min(maxConcurrency, mobileLimit, Math.max(1, Math.min(cpuLimit, memoryLimit)));
+  const memoryLabel = memory ? `${memory}GB RAM` : "unknown RAM";
+
+  return {
+    value,
+    details: `Browser fallback: ${cores} CPU thread${cores === 1 ? "" : "s"}, ${memoryLabel}${isMobile ? ", mobile device" : ""}.`,
+    source: "browser",
+  };
+}
+
+function getServerRecommendedConcurrency(data, maxConcurrency, fallback) {
+  const cpuThreads = Number(data?.cpuThreads) || null;
+  const totalMemoryGb = Number(data?.totalMemoryGb) || null;
+  const recommendedWorkers = Number(data?.recommendedWorkers);
+  if (!Number.isFinite(recommendedWorkers) || recommendedWorkers <= 0) return fallback;
+  const value = Math.min(maxConcurrency, Math.max(1, recommendedWorkers));
+  const cpuLabel = cpuThreads ? `${cpuThreads} CPU thread${cpuThreads === 1 ? "" : "s"}` : "unknown CPU";
+  const memoryLabel = totalMemoryGb ? `${totalMemoryGb}GB RAM` : "unknown RAM";
+  return {
+    value,
+    details: `Server capacity: ${cpuLabel}, ${memoryLabel}.`,
+    source: "server",
+  };
+}
+
 function formatStepLabel(value) {
   return String(value || "waiting").replaceAll("_", " ");
 }
@@ -141,13 +181,13 @@ export default function BulkAccountAutomationModal({
   const notify = useNotificationStore();
   const completedRefreshJobsRef = useRef(new Set());
   const [bulkText, setBulkText] = useState("");
-  const [concurrency, setConcurrency] = useState(String(defaultConcurrency));
+  const fallbackRecommendation = useMemo(() => getRecommendedConcurrency({ defaultConcurrency, maxConcurrency }), [defaultConcurrency, maxConcurrency]);
+  const [concurrency, setConcurrency] = useState(() => String(getRecommendedConcurrency({ defaultConcurrency, maxConcurrency }).value));
   const [activeJob, setActiveJob] = useState(null);
   const [error, setError] = useState(null);
   const [importing, setImporting] = useState(false);
   const [jobRestoreNotice, setJobRestoreNotice] = useState(null);
   const [browserChoice, setBrowserChoice] = useState(DEFAULT_AUTOMATION_BROWSER);
-
   const runningJob = activeJob && ACTIVE_JOB_STATUSES.has(activeJob.status);
   const finishedJob = activeJob && TERMINAL_JOB_STATUSES.has(activeJob.status);
   const selectedBrowserOption = useMemo(() => getAutomationBrowserOption(browserChoice), [browserChoice]);
@@ -166,9 +206,32 @@ export default function BulkAccountAutomationModal({
     [...(activeJob?.activity || [])].reverse()
   ), [activeJob]);
 
+  const [recommendedConcurrency, setRecommendedConcurrency] = useState(fallbackRecommendation);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCapacity = async () => {
+      try {
+        const res = await fetch("/api/system/capacity", { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || cancelled) return;
+        const next = getServerRecommendedConcurrency(data, maxConcurrency, fallbackRecommendation);
+        setRecommendedConcurrency(next);
+        setConcurrency((current) => {
+          if (!current || current === String(defaultConcurrency) || current === String(fallbackRecommendation.value)) return String(next.value);
+          return current;
+        });
+      } catch {
+        if (!cancelled) setRecommendedConcurrency(fallbackRecommendation);
+      }
+    };
+    void loadCapacity();
+    return () => { cancelled = true; };
+  }, [defaultConcurrency, fallbackRecommendation, maxConcurrency]);
+
   const resetState = useCallback(() => {
     setBulkText("");
-    setConcurrency(String(defaultConcurrency));
+    setConcurrency(String(recommendedConcurrency.value));
     setActiveJob(null);
     setError(null);
     setImporting(false);
@@ -176,7 +239,7 @@ export default function BulkAccountAutomationModal({
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(storageKey);
     }
-  }, [defaultConcurrency, storageKey]);
+  }, [recommendedConcurrency.value, storageKey]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -405,9 +468,20 @@ export default function BulkAccountAutomationModal({
                 onChange={(event) => setConcurrency(event.target.value)}
                 placeholder={String(defaultConcurrency)}
               />
-              <p className="mt-1 text-xs text-text-muted">
-                Default {defaultConcurrency}. Allowed range: 1 to {maxConcurrency} worker{maxConcurrency === 1 ? "" : "s"}.
-              </p>
+              <div className="mt-1 flex flex-col gap-1 text-xs text-text-muted sm:flex-row sm:items-center sm:justify-between">
+                <p>
+                  Recommended {recommendedConcurrency?.value || defaultConcurrency}. Allowed range: 1 to {maxConcurrency} worker{maxConcurrency === 1 ? "" : "s"}. {recommendedConcurrency?.details || ""}
+                </p>
+                {recommendedConcurrency?.value && String(recommendedConcurrency.value) !== concurrency && (
+                  <button
+                    type="button"
+                    onClick={() => setConcurrency(String(recommendedConcurrency.value))}
+                    className="text-left font-medium text-primary hover:underline sm:text-right"
+                  >
+                    Use recommended
+                  </button>
+                )}
+              </div>
             </div>
 
             <div>

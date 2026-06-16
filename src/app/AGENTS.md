@@ -8,7 +8,7 @@
 
 - `(dashboard)/`, `dashboard/`, `login/`, `landing/`, and `callback/` own user-facing routes.
 - `api/v1/` and `api/v1beta/` own OpenAI, Anthropic, Gemini, and compatible client-facing endpoints.
-- Other `api/` directories own dashboard management, provider setup, OAuth, keys, usage, sync, media, translator, tunnel, and runtime control endpoints.
+- Other `api/` directories own dashboard management, provider setup, OAuth, keys, usage, sync, media, translator, tunnel, system capacity, and runtime control endpoints.
 
 ## Local Contracts
 
@@ -16,6 +16,7 @@
 - Treat provider credentials, cookies, API keys, OAuth tokens, and request logs as sensitive.
 - Preserve Next.js server/client boundaries; add `"use client"` only where browser state or APIs require it.
 - Keep dashboard behavior aligned with the corresponding API contract and shared store.
+- Keep `/api/system/capacity` limited to coarse server CPU/RAM capacity data for local worker recommendations; do not expose sensitive host details.
 - Do not silently change `/v1/*` compatibility semantics without focused regression tests.
 
 ## Work Guidance

@@ -9,6 +9,46 @@ import { useNotificationStore } from "@/store/notificationStore";
 
 const DEFAULT_CONCURRENCY = 4;
 const BULK_JOB_STORAGE_KEY = "kiro-bulk-import-active-job";
+
+function getRecommendedConcurrency() {
+  if (typeof navigator === "undefined") {
+    return {
+      value: DEFAULT_CONCURRENCY,
+      details: "Browser fallback until server capacity is available.",
+      source: "browser",
+    };
+  }
+
+  const cores = Number(navigator.hardwareConcurrency) || 4;
+  const memory = Number(navigator.deviceMemory) || null;
+  const isMobile = Boolean(navigator.userAgentData?.mobile) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || "");
+  const cpuLimit = cores >= 12 ? 6 : cores >= 8 ? 4 : cores >= 4 ? 3 : 1;
+  const memoryLimit = memory === null ? cpuLimit : memory >= 16 ? 6 : memory >= 8 ? 4 : memory >= 4 ? 3 : 1;
+  const mobileLimit = isMobile ? 2 : 8;
+  const value = Math.min(8, mobileLimit, Math.max(1, Math.min(cpuLimit, memoryLimit)));
+  const memoryLabel = memory ? `${memory}GB RAM` : "unknown RAM";
+
+  return {
+    value,
+    details: `Browser fallback: ${cores} CPU thread${cores === 1 ? "" : "s"}, ${memoryLabel}${isMobile ? ", mobile device" : ""}.`,
+    source: "browser",
+  };
+}
+
+function getServerRecommendedConcurrency(data, fallback) {
+  const cpuThreads = Number(data?.cpuThreads) || null;
+  const totalMemoryGb = Number(data?.totalMemoryGb) || null;
+  const recommendedWorkers = Number(data?.recommendedWorkers);
+  if (!Number.isFinite(recommendedWorkers) || recommendedWorkers <= 0) return fallback;
+  const value = Math.min(8, Math.max(1, recommendedWorkers));
+  const cpuLabel = cpuThreads ? `${cpuThreads} CPU thread${cpuThreads === 1 ? "" : "s"}` : "unknown CPU";
+  const memoryLabel = totalMemoryGb ? `${totalMemoryGb}GB RAM` : "unknown RAM";
+  return {
+    value,
+    details: `Server capacity: ${cpuLabel}, ${memoryLabel}.`,
+    source: "server",
+  };
+}
 const JOB_SESSION_EXPIRED_MESSAGE = "Bulk import progress could not be restored. The previous job session was cleared.";
 
 function isJobTerminal(status) {
@@ -154,7 +194,8 @@ export default function KiroAuthModal({
   const [refreshToken, setRefreshToken] = useState("");
   const [importMode, setImportMode] = useState("single-token");
   const [bulkText, setBulkText] = useState("");
-  const [concurrency, setConcurrency] = useState(String(DEFAULT_CONCURRENCY));
+  const fallbackRecommendation = useMemo(() => getRecommendedConcurrency(), []);
+  const [concurrency, setConcurrency] = useState(() => String(getRecommendedConcurrency().value));
   const [browserChoice, setBrowserChoice] = useState(DEFAULT_AUTOMATION_BROWSER);
   const [bulkResult, setBulkResult] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
@@ -175,6 +216,28 @@ export default function KiroAuthModal({
     ? "bulk-account"
     : importMode;
   const selectedBrowserOption = useMemo(() => getAutomationBrowserOption(browserChoice), [browserChoice]);
+  const [recommendedConcurrency, setRecommendedConcurrency] = useState(fallbackRecommendation);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCapacity = async () => {
+      try {
+        const res = await fetch("/api/system/capacity", { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || cancelled) return;
+        const next = getServerRecommendedConcurrency(data, fallbackRecommendation);
+        setRecommendedConcurrency(next);
+        setConcurrency((current) => {
+          if (!current || current === String(DEFAULT_CONCURRENCY) || current === String(fallbackRecommendation.value)) return String(next.value);
+          return current;
+        });
+      } catch {
+        if (!cancelled) setRecommendedConcurrency(fallbackRecommendation);
+      }
+    };
+    void loadCapacity();
+    return () => { cancelled = true; };
+  }, [fallbackRecommendation]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -413,7 +476,7 @@ export default function KiroAuthModal({
     setRefreshToken("");
     setBulkText("");
     setBulkResult(null);
-    setConcurrency(String(DEFAULT_CONCURRENCY));
+    setConcurrency(String(recommendedConcurrency.value));
     setError(null);
     setJobRestoreNotice(null);
     setAutoDetected(false);
@@ -996,9 +1059,20 @@ export default function KiroAuthModal({
                         onChange={(e) => setConcurrency(e.target.value)}
                         placeholder="4"
                       />
-                      <p className="mt-1 text-xs text-text-muted">
-                        Default 4. Allowed range: 1 to 8 workers.
-                      </p>
+                      <div className="mt-1 flex flex-col gap-1 text-xs text-text-muted sm:flex-row sm:items-center sm:justify-between">
+                        <p>
+                          Recommended {recommendedConcurrency.value}. Allowed range: 1 to 8 workers. {recommendedConcurrency.details}
+                        </p>
+                        {String(recommendedConcurrency.value) !== concurrency && (
+                          <button
+                            type="button"
+                            onClick={() => setConcurrency(String(recommendedConcurrency.value))}
+                            className="text-left font-medium text-primary hover:underline sm:text-right"
+                          >
+                            Use recommended
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div>
