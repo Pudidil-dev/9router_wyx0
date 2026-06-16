@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Button, Toggle, Input } from "@/shared/components";
+import { Card, Button, Toggle, Input, ExperimentalBadge } from "@/shared/components";
 import Modal, { ConfirmModal } from "@/shared/components/Modal";
 import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
@@ -1187,7 +1187,7 @@ export default function ProfilePage() {
               <span className="material-symbols-outlined text-[20px]">travel_explore</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Proxy Scraper</h3>
-            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Experimental</span>
+            <ExperimentalBadge />
           </div>
 
           <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs sm:text-sm text-text-muted">

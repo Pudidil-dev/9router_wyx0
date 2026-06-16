@@ -12,6 +12,7 @@ import {
   Select,
   Toggle,
   Pagination,
+  ExperimentalBadge,
 } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
@@ -689,7 +690,10 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
               />
             </div>
             <div className="min-w-0">
-              <h3 className="truncate font-semibold">{provider.name}</h3>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="truncate font-semibold">{provider.name}</h3>
+                {provider.experimental && <ExperimentalBadge size="compact" />}
+              </div>
               <div className="flex min-w-0 items-center gap-1.5 text-xs flex-wrap">
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
@@ -817,7 +821,10 @@ function ApiKeyProviderCard({
               />
             </div>
             <div className="min-w-0">
-              <h3 className="truncate font-semibold">{provider.name}</h3>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="truncate font-semibold">{provider.name}</h3>
+                {provider.experimental && <ExperimentalBadge size="compact" />}
+              </div>
               <div className="flex min-w-0 items-center gap-1.5 text-xs flex-wrap">
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
