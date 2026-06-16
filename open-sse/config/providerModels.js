@@ -654,6 +654,14 @@ export const PROVIDER_MODELS = {
     { id: "pplx-opus", name: "Claude Opus 4.6 (via Perplexity)" },
     { id: "pplx-nemotron", name: "Nemotron 3 Super (via Perplexity)" },
   ],
+  "gemini-web": [
+    { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
+    { id: "gemini-3.5-flash-thinking", name: "Gemini 3.5 Flash Thinking" },
+    { id: "gemini-3.5-flash-thinking-lite", name: "Gemini 3.5 Flash Thinking Lite" },
+    { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (requires Advanced subscription)" },
+    { id: "gemini-auto", name: "Gemini Auto" },
+    { id: "gemini-flash-lite", name: "Gemini Flash Lite" },
+  ],
 
   // TTS entries are loaded from ttsModels.js via buildTtsProviderModels()
   ...buildTtsProviderModels(),

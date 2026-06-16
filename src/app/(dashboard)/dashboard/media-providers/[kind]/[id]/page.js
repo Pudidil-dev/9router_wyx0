@@ -1831,7 +1831,7 @@ export default function MediaProviderDetailPage() {
       )}
 
       {/* Provider notice text (only when there's actual text content) */}
-      {!isCustom && provider.notice?.text && !provider.deprecated && (
+      {!isCustom && provider.notice?.text && !provider.deprecated && !provider.experimental && (
         <div className="flex flex-col gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 sm:flex-row sm:items-center">
           <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">info</span>
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-blue-600 dark:text-blue-400">{provider.notice.text}</p>

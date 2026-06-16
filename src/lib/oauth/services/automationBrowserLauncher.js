@@ -2,14 +2,14 @@ import { AUTOMATION_BROWSER_CAMOFOX, AUTOMATION_BROWSER_CHROMIUM, normalizeAutom
 
 const CAMOFOX_UNAVAILABLE_MESSAGE = "Camofox browser support is not installed in this build. Switch to Playwright Chromium or install/configure Camofox support.";
 
-async function launchChromium() {
+async function launchChromium({ headless = true } = {}) {
   const { chromium } = await import("playwright");
   return await chromium.launch({
-    headless: true,
+    headless,
   });
 }
 
-async function launchCamofox() {
+async function launchCamofox({ headless = true } = {}) {
   let mod;
   try {
     const optionalImport = new Function("specifier", "return import(specifier)");
@@ -23,16 +23,22 @@ async function launchCamofox() {
     throw new Error(CAMOFOX_UNAVAILABLE_MESSAGE);
   }
 
-  return await launcher({ headless: true });
+  return await launcher({ headless });
 }
 
-export function createAutomationBrowserLauncher(browser) {
+/**
+ * @param {string} browser - normalized browser id (chromium|camofox)
+ * @param {object} [options]
+ * @param {boolean} [options.headless=true] - false to open a visible window for interactive login
+ */
+export function createAutomationBrowserLauncher(browser, options = {}) {
   const normalized = normalizeAutomationBrowser(browser);
+  const launchOpts = { headless: options.headless !== false };
   return async function launchAutomationBrowser() {
     if (normalized === AUTOMATION_BROWSER_CAMOFOX) {
-      return await launchCamofox();
+      return await launchCamofox(launchOpts);
     }
-    return await launchChromium();
+    return await launchChromium(launchOpts);
   };
 }
 

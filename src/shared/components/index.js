@@ -30,6 +30,7 @@ export { default as KiroOAuthWrapper } from "./KiroOAuthWrapper";
 export { default as KiroSocialOAuthModal } from "./KiroSocialOAuthModal";
 export { default as CursorAuthModal } from "./CursorAuthModal";
 export { default as IFlowCookieModal } from "./IFlowCookieModal";
+export { default as GeminiWebCookieModal } from "./GeminiWebCookieModal";
 export { default as CodeBuddyQuotaCookieModal } from "./CodeBuddyQuotaCookieModal";
 export { default as GitLabAuthModal } from "./GitLabAuthModal";
 export { default as EditConnectionModal } from "./EditConnectionModal";

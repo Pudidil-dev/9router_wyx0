@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, CodeBuddyQuotaCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal, Pagination } from "@/shared/components";
+import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GeminiWebCookieModal, CodeBuddyQuotaCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal, Pagination } from "@/shared/components";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS, THINKING_CONFIG } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -83,6 +83,7 @@ export default function ProviderDetailPage() {
   const [proxyPools, setProxyPools] = useState([]);
   const [showOAuthModal, setShowOAuthModal] = useState(false);
   const [showIFlowCookieModal, setShowIFlowCookieModal] = useState(false);
+  const [showGeminiWebCookieModal, setShowGeminiWebCookieModal] = useState(false);
   const [showCodeBuddyQuotaCookieModal, setShowCodeBuddyQuotaCookieModal] = useState(false);
   const [showAddApiKeyModal, setShowAddApiKeyModal] = useState(false);
   const [addConnectionError, setAddConnectionError] = useState("");
@@ -170,6 +171,10 @@ export default function ProviderDetailPage() {
   };
 
   const triggerAddConnection = () => {
+    if (providerId === "gemini-web") {
+      setShowGeminiWebCookieModal(true);
+      return;
+    }
     if (isOAuth) {
       triggerOAuthConnection();
       return;
@@ -794,6 +799,11 @@ export default function ProviderDetailPage() {
   const handleIFlowCookieSuccess = () => {
     fetchConnections();
     setShowIFlowCookieModal(false);
+  };
+
+  const handleGeminiWebCookieSuccess = () => {
+    fetchConnections();
+    setShowGeminiWebCookieModal(false);
   };
 
   const handleCodeBuddyQuotaCookieSuccess = () => {
@@ -1438,7 +1448,14 @@ export default function ProviderDetailPage() {
         </div>
       )}
 
-      {providerInfo.notice?.text && !providerInfo.deprecated && (
+      {providerInfo.experimental && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+          <span className="material-symbols-outlined text-[16px] text-amber-500 mt-0.5 shrink-0">science</span>
+          <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">{providerInfo.experimentalNotice}</p>
+        </div>
+      )}
+
+      {providerInfo.notice?.text && !providerInfo.deprecated && !providerInfo.experimental && (
         <div className="flex flex-col gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 sm:flex-row sm:items-center">
           <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">info</span>
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-blue-600 dark:text-blue-400">{providerInfo.notice.text}</p>
@@ -1850,6 +1867,20 @@ export default function ProviderDetailPage() {
                       Cookie
                     </Button>
                   )}
+                  {providerId === "gemini-web" && (
+                    <Button
+                      size="sm"
+                      icon={connections.length > 0 ? "refresh" : "cookie"}
+                      variant={connections.some((c) => c.error || c.errorCode) ? "primary" : "secondary"}
+                      onClick={() => setShowGeminiWebCookieModal(true)}
+                      title={connections.length > 0
+                        ? "Re-authenticate by pasting a fresh cURL from gemini.google.com"
+                        : "Paste a Copy-as-cURL request from gemini.google.com to capture cookies"}
+                      className="w-full sm:w-auto"
+                    >
+                      {connections.length > 0 ? "Re-authenticate" : "Add cookies"}
+                    </Button>
+                  )}
                   {providerId === "codebuddy" && (
                     <Button
                       size="sm"
@@ -1985,6 +2016,13 @@ export default function ProviderDetailPage() {
           isOpen={showIFlowCookieModal}
           onSuccess={handleIFlowCookieSuccess}
           onClose={() => setShowIFlowCookieModal(false)}
+        />
+      )}
+      {providerId === "gemini-web" && (
+        <GeminiWebCookieModal
+          isOpen={showGeminiWebCookieModal}
+          onSuccess={handleGeminiWebCookieSuccess}
+          onClose={() => setShowGeminiWebCookieModal(false)}
         />
       )}
       {providerId === "codebuddy" && (

@@ -13,8 +13,8 @@
 - `src/app` contains the Next.js App Router UI and API routes, including the dashboard under `src/app/(dashboard)` and OpenAI-compatible endpoints under `src/app/api/v1`.
 - Shared UI, constants, hooks, and stores live in `src/shared`, `src/store`, and `src/i18n`.
 - Routing and provider translation logic is split between `src/sse` and `open-sse`.
-- CLI packaging lives in `cli/`, docs in `docs/` and `gitbook/`, public assets in `public/` and `images/`, and automated tests in `tests/unit` and `tests/translator`.
-- Root-owned areas without child DOX files include configuration, deployment files, `docs/`, `i18n/`, `images/`, `public/`, and `scripts/`.
+- CLI packaging lives in `cli/`, repository scripts in `scripts/`, docs in `docs/` and `gitbook/`, public assets in `public/` and `images/`, and automated tests in `tests/unit` and `tests/translator`.
+- Root-owned areas without child DOX files include configuration, deployment files, `docs/`, `i18n/`, `images/`, `public/`, empty placeholders, and generated or local runtime folders such as `.data-wyx0/`, `.next*/`, and `node_modules/`.
 
 ## Build And Development
 
@@ -62,6 +62,7 @@ Use Node 18 or newer.
 - `cli/AGENTS.md` - CLI runtime, packaging, postinstall behavior, terminal menus, and tray integration.
 - `gitbook/AGENTS.md` - multilingual documentation site, navigation, content parity, and docs build.
 - `open-sse/AGENTS.md` - provider execution, request orchestration, streaming, fallback, and format translation core.
+- `scripts/AGENTS.md` - repository-level build, startup, fast runtime, and README translation scripts.
 - `skills/AGENTS.md` - distributable 9Router agent skill documents.
 - `src/AGENTS.md` - Next.js application, persistence, shared services, and the bridge into the routing core.
 - `tests/AGENTS.md` - Vitest ownership, unit test conventions, translator coverage, and live-provider test boundaries.

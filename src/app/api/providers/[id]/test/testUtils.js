@@ -1,3 +1,4 @@
+import nodeCrypto from "node:crypto";
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
@@ -685,6 +686,32 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         const data = await res.json().catch(() => null);
         const valid = !!(data && data.user);
         return { valid, error: valid ? null : "Session expired — re-paste cookie" };
+      }
+      case "gemini-web": {
+        const psd = connection.providerSpecificData || {};
+        const cookieString = psd.cookieString;
+        const sapisid = psd.sapisid;
+        if (!cookieString || !sapisid) {
+          return { valid: false, error: "Missing cookies — re-authenticate via the Cookie modal" };
+        }
+        const ts = Math.floor(Date.now() / 1000);
+        const sapisidHash = `SAPISIDHASH ${ts}_${nodeCrypto.createHash("sha1").update(`${ts} ${sapisid} https://gemini.google.com`).digest("hex")}`;
+        const res = await fetchWithConnectionProxy("https://gemini.google.com/app", {
+          method: "GET",
+          headers: {
+            Cookie: cookieString,
+            Origin: "https://gemini.google.com",
+            Referer: "https://gemini.google.com/app",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Authorization: sapisidHash,
+            "X-Same-Domain": "1",
+          },
+        }, effectiveProxy);
+        if (res.status === 200) return { valid: true, error: null };
+        if (res.status === 302 || res.status === 401 || res.status === 403) {
+          return { valid: false, error: "Session expired — re-paste cookies via the Cookie modal" };
+        }
+        return { valid: false, error: `Unexpected upstream status: ${res.status}` };
       }
       case "opencode": {
         const res = await fetchWithConnectionProxy("https://opencode.ai/zen/v1/chat/completions", {

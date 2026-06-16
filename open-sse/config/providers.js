@@ -423,6 +423,11 @@ export const PROVIDERS = {
     format: "perplexity-web",
     authType: "cookie"
   },
+  "gemini-web": {
+    baseUrl: "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+    format: "gemini-web",
+    authType: "cookie"
+  },
   azure: {
     baseUrl: "",
     format: "openai",

@@ -590,6 +590,42 @@ export async function POST(request) {
           break;
         }
 
+        case "gemini-web": {
+          const psd = providerSpecificData || {};
+          const cookieString = psd.cookieString;
+          const sapisid = psd.sapisid;
+          if (!cookieString || !sapisid) {
+            isValid = false;
+            error = "Missing cookies — re-authenticate via the Gemini Web Cookie modal";
+            break;
+          }
+          const nodeCrypto = await import("node:crypto");
+          const ts = Math.floor(Date.now() / 1000);
+          const sapisidHash = `SAPISIDHASH ${ts}_${nodeCrypto.createHash("sha1").update(`${ts} ${sapisid} https://gemini.google.com`).digest("hex")}`;
+          const res = await fetch("https://gemini.google.com/app", {
+            method: "GET",
+            headers: {
+              Cookie: cookieString,
+              Origin: "https://gemini.google.com",
+              Referer: "https://gemini.google.com/app",
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              Authorization: sapisidHash,
+              "X-Same-Domain": "1",
+            },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (res.status === 200) {
+            isValid = true;
+          } else if (res.status === 302 || res.status === 401 || res.status === 403) {
+            isValid = false;
+            error = "Session expired — re-paste cookies via the Gemini Web Cookie modal";
+          } else {
+            isValid = false;
+            error = `Unexpected upstream status: ${res.status}`;
+          }
+          break;
+        }
+
         default: {
           // Generic probe for OpenAI-compatible providers (config-driven from PROVIDERS)
           const cfg = PROVIDERS[provider];
