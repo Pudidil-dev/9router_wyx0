@@ -68,13 +68,7 @@ jobs:
               process.exit(1);
             }
 
-            const fields = [
-              {
-                name: "Update",
-                value: updateLabel,
-                inline: true,
-              },
-            ];
+            const fields = [];
 
             if (updateCommand) {
               fields.push({
@@ -92,9 +86,6 @@ jobs:
                   description: message,
                   color: Number.isFinite(color) ? color : 5814783,
                   fields,
-                  footer: {
-                    text: repo,
-                  },
                   url: runUrl,
                   timestamp: new Date().toISOString(),
                 },
