@@ -14,7 +14,8 @@
 - Shared UI, constants, hooks, and stores live in `src/shared`, `src/store`, and `src/i18n`.
 - Routing and provider translation logic is split between `src/sse` and `open-sse`.
 - CLI packaging lives in `cli/`, repository scripts in `scripts/`, docs in `docs/` and `gitbook/`, public assets in `public/` and `images/`, and automated tests in `tests/unit` and `tests/translator`.
-- Root-owned areas without child DOX files include configuration, deployment files, `docs/`, `i18n/`, `images/`, `public/`, empty placeholders, and generated or local runtime folders such as `.data-wyx0/`, `.next*/`, and `node_modules/`.
+- GitHub Actions workflows in `.github/workflows` handle publishing, docs deployment, Docker images, and optional WYx0 Discord changelog announcements.
+- Root-owned areas without child DOX files include configuration, deployment files, `.github/`, `docs/`, `i18n/`, `images/`, `public/`, empty placeholders, and generated or local runtime folders such as `.data-wyx0/`, `.next*/`, and `node_modules/`.
 
 ## Build And Development
 

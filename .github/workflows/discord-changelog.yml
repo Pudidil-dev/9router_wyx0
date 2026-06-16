@@ -1,0 +1,131 @@
+name: Announce WYx0 Changelog to Discord
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_label:
+        description: "WYx0 update label, e.g. 0.4.80-1"
+        required: true
+        default: "0.4.80-1"
+      title:
+        description: "Announcement title"
+        required: false
+        default: "9Router WYx0 Update"
+      message:
+        description: "Short changelog message. Supports new lines."
+        required: true
+        default: "Describe what changed in this update."
+      update_command:
+        description: "Command users should run to update"
+        required: false
+        default: "npm update -g wyxrouter"
+      color:
+        description: "Discord embed color as decimal integer"
+        required: false
+        default: "5814783"
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Discord webhook secret
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::error::Missing DISCORD_WEBHOOK_URL secret. Add it in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Send Discord announcement
+        run: |
+          node <<'NODE'
+          async function main() {
+            const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+            const updateLabel = process.env.UPDATE_LABEL.trim();
+            const title = process.env.TITLE.trim() || "9Router WYx0 Update";
+            const message = process.env.MESSAGE.trim();
+            const updateCommand = process.env.UPDATE_COMMAND.trim();
+            const color = Number.parseInt(process.env.COLOR, 10);
+            const repo = process.env.GITHUB_REPOSITORY;
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            if (!webhookUrl) {
+              console.error("Missing DISCORD_WEBHOOK_URL secret.");
+              process.exit(1);
+            }
+
+            if (!updateLabel) {
+              console.error("update_label input is required.");
+              process.exit(1);
+            }
+
+            if (!message) {
+              console.error("message input is required.");
+              process.exit(1);
+            }
+
+            const fields = [
+              {
+                name: "Update",
+                value: updateLabel,
+                inline: true,
+              },
+            ];
+
+            if (updateCommand) {
+              fields.push({
+                name: "Update command",
+                value: `\`${updateCommand}\``,
+                inline: false,
+              });
+            }
+
+            const payload = {
+              username: "9Router WYx0",
+              embeds: [
+                {
+                  title: `${title} ${updateLabel}`,
+                  description: message,
+                  color: Number.isFinite(color) ? color : 5814783,
+                  fields,
+                  footer: {
+                    text: repo,
+                  },
+                  url: runUrl,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            };
+
+            const response = await fetch(webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+              const body = await response.text();
+              console.error(`Discord webhook failed: ${response.status} ${response.statusText}`);
+              console.error(body.slice(0, 1000));
+              process.exit(1);
+            }
+
+            console.log(`Announced ${updateLabel} to Discord.`);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          UPDATE_LABEL: ${{ inputs.update_label }}
+          TITLE: ${{ inputs.title }}
+          MESSAGE: ${{ inputs.message }}
+          UPDATE_COMMAND: ${{ inputs.update_command }}
+          COLOR: ${{ inputs.color }}
