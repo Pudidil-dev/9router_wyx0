@@ -41,17 +41,9 @@ export const PROVIDER_MODELS = {
     { id: "gpt-5.5", name: "GPT 5.5" },
     { id: "gpt-5.4", name: "GPT 5.4" },
     { id: "gpt-5.4-mini", name: "GPT 5.4 Mini" },
-    // GPT 5.3 Codex - all thinking levels
-    { id: "gpt-5.3-codex", name: "GPT 5.3 Codex" },
-    { id: "gpt-5.3-codex-xhigh", name: "GPT 5.3 Codex (xHigh)" },
-    { id: "gpt-5.3-codex-high", name: "GPT 5.3 Codex (High)" },
-    { id: "gpt-5.3-codex-low", name: "GPT 5.3 Codex (Low)" },
-    { id: "gpt-5.3-codex-none", name: "GPT 5.3 Codex (None)" },
-    { id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark" },
     // Image models (uses image_generation tool, requires Plus/Pro plan)
     { id: "gpt-5.5-image", name: "GPT 5.5 Image", type: "image", capabilities: ["text2img", "edit"], params: ["size", "quality", "background", "image_detail", "output_format"] },
     { id: "gpt-5.4-image", name: "GPT 5.4 Image", type: "image", capabilities: ["text2img", "edit"], params: ["size", "quality", "background", "image_detail", "output_format"] },
-    { id: "gpt-5.3-image", name: "GPT 5.3 Image", type: "image", capabilities: ["text2img", "edit"], params: ["size", "quality", "background", "image_detail", "output_format"] },
   ]),
   gc: [  // Gemini CLI
     { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview" },
