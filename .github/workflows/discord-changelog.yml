@@ -28,10 +28,10 @@ on:
         required: false
         default: ""
       mention_everyone:
-        description: "Mention @everyone in the webhook message"
+        description: "Mention @everyone at the top of the message"
         required: false
         type: boolean
-        default: false
+        default: true
       update_command:
         description: "Command users should run to update"
         required: false
