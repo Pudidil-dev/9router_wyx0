@@ -225,6 +225,13 @@ export default function ProvidersPage() {
   }, []);
 
   const getProviderStats = (providerId, authType) => {
+    const providerInfo =
+      OAUTH_PROVIDERS[providerId]
+      || APIKEY_PROVIDERS[providerId]
+      || FREE_PROVIDERS[providerId]
+      || FREE_TIER_PROVIDERS[providerId]
+      || WEB_COOKIE_PROVIDERS[providerId]
+      || providerNodes.find((node) => node.id === providerId);
     const providerConnections = getProviderConnectionsForSummary(
       connections,
       providerId,
@@ -246,7 +253,14 @@ export default function ProvidersPage() {
       ? getRelativeTime(latestError.lastErrorAt)
       : null;
 
-    return { connected, error, total, errorCode, errorTime, allDisabled };
+    return {
+      connected,
+      error,
+      total,
+      errorCode,
+      errorTime,
+      allDisabled: providerInfo?.systemDisabled === true || allDisabled,
+    };
   };
 
   // Toggle all connections for a provider on/off. authType may be a single
@@ -717,6 +731,11 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
                 <h3 className="truncate font-semibold">{provider.name}</h3>
+                {provider.statusLabel && (
+                  <Badge variant="error" size="sm">
+                    {provider.statusLabel}
+                  </Badge>
+                )}
                 {provider.experimental && <ExperimentalBadge size="compact" />}
               </div>
               <div className="flex min-w-0 items-center gap-1.5 text-xs flex-wrap">
@@ -743,7 +762,7 @@ function ProviderCard({ providerId, provider, stats, authType, onToggle }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {stats.total > 0 && (
+            {stats.total > 0 && !provider.systemDisabled && (
               <div
                 className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
                 onClick={(e) => {
@@ -774,6 +793,7 @@ ProviderCard.propTypes = {
     name: PropTypes.string.isRequired,
     color: PropTypes.string,
     textIcon: PropTypes.string,
+    statusLabel: PropTypes.string,
   }).isRequired,
   stats: PropTypes.shape({
     connected: PropTypes.number,
@@ -848,6 +868,11 @@ function ApiKeyProviderCard({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
                 <h3 className="truncate font-semibold">{provider.name}</h3>
+                {provider.statusLabel && (
+                  <Badge variant="error" size="sm">
+                    {provider.statusLabel}
+                  </Badge>
+                )}
                 {provider.experimental && <ExperimentalBadge size="compact" />}
               </div>
               <div className="flex min-w-0 items-center gap-1.5 text-xs flex-wrap">
@@ -884,7 +909,7 @@ function ApiKeyProviderCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {stats.total > 0 && (
+            {stats.total > 0 && !provider.systemDisabled && (
               <div
                 className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
                 onClick={(e) => {
@@ -916,6 +941,7 @@ ApiKeyProviderCard.propTypes = {
     color: PropTypes.string,
     textIcon: PropTypes.string,
     apiType: PropTypes.string,
+    statusLabel: PropTypes.string,
   }).isRequired,
   stats: PropTypes.shape({
     connected: PropTypes.number,

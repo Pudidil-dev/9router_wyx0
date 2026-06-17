@@ -58,6 +58,8 @@ function normalizeCodeBuddyAuthUrl(rawUrl, state) {
 
 async function defaultSaveCodeBuddyConnection({ tokens, email }) {
   const { createProviderConnection } = await import("../../../models/index.js");
+  const { assertProviderEnabled } = await import("@/lib/providerDisabled");
+  await assertProviderEnabled(CODEBUDDY_PROVIDER_ID);
   const hasApiKey = Boolean(tokens.apiKey);
   const providerSpecificData = {
     ...(tokens.providerSpecificData || {}),
@@ -76,6 +78,7 @@ async function defaultSaveCodeBuddyConnection({ tokens, email }) {
     name: email || undefined,
     email,
     providerSpecificData,
+    isActive: false,
     testStatus: "active",
   };
 
@@ -451,7 +454,7 @@ export class CodeBuddyBulkImportManager extends KiroBulkImportManager {
         await this.persistJobSnapshot(job, { forcePreview: true });
         const tokensWithCookie = await attachCodeBuddyWebCookie(context, tokensWithApiKey);
         const { connection } = await this.saveConnection({
-          tokens: tokensWithCookie,
+          tokens: { ...tokensWithCookie, isActive: false },
           email: account.email,
         });
 
@@ -567,7 +570,7 @@ export class CodeBuddyBulkImportManager extends KiroBulkImportManager {
         await this.persistJobSnapshot(job, { forcePreview: true });
         const tokensWithCookie = await attachCodeBuddyWebCookie(context, tokensWithApiKey);
         const { connection } = await this.saveConnection({
-          tokens: tokensWithCookie,
+          tokens: { ...tokensWithCookie, isActive: false },
           email: account.email,
         });
         this.finalizeAccount(account, "success", {

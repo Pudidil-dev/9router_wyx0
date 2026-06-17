@@ -102,6 +102,7 @@ describe("CodeBuddyBulkImportManager", () => {
       "cb-key-user1@example.com",
       "cb-key-user2@example.com",
     ]);
+    expect(saved.every((entry) => entry.tokens.isActive === false)).toBe(true);
     expect(finishedJob.accounts.every((account) => account.connectionId)).toBe(true);
   });
 

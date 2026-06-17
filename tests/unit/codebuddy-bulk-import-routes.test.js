@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const managerMock = {
+  startJob: vi.fn(),
   cancelJob: vi.fn(),
 };
+const assertProviderEnabled = vi.fn();
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -16,6 +18,22 @@ vi.mock("next/server", () => ({
 
 vi.mock("@/lib/oauth/services/codebuddyBulkImportManager", () => ({
   getCodeBuddyBulkImportManager: vi.fn(() => managerMock),
+  parseCodeBuddyBulkAccounts: vi.fn((accounts = []) => ({
+    parsed: (accounts || [])
+      .filter(Boolean)
+      .filter((line) => String(line).includes("|"))
+      .map((line, index) => {
+        const [email, password] = String(line).split("|");
+        return { line: index + 1, email, password };
+      }),
+    invalidLines: (accounts || [])
+      .map((line, index) => (!String(line).includes("|") ? index + 1 : null))
+      .filter(Boolean),
+  })),
+}));
+
+vi.mock("@/lib/providerDisabled", () => ({
+  assertProviderEnabled,
 }));
 
 describe("CodeBuddy bulk import routes", () => {
@@ -41,6 +59,23 @@ describe("CodeBuddy bulk import routes", () => {
     expect(response.status).toBe(200);
     expect(managerMock.cancelJob).toHaveBeenCalledWith("job-1");
     expect(response.body.job.status).toBe("cancelled");
+  });
+
+  it("returns 409 when CodeBuddy is disabled", async () => {
+    const error = new Error("CodeBuddy is disabled. Re-enable it from the Providers tab to use this feature.");
+    error.status = 409;
+    assertProviderEnabled.mockRejectedValueOnce(error);
+
+    const { POST } = await import("../../src/app/api/oauth/codebuddy/bulk-import/route.js");
+    const response = await POST({
+      json: async () => ({
+        accounts: ["user@example.com|secret"],
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("disabled");
+    expect(managerMock.startJob).not.toHaveBeenCalled();
   });
 
   it("returns JSON when the job is missing", async () => {

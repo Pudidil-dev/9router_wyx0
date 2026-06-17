@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProviderConnectionById } from "@/lib/localDb";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 import { getProviderModels, PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
@@ -19,6 +20,7 @@ export async function POST(request, { params }) {
     }
 
     const providerId = connection.provider;
+    await assertProviderEnabled(providerId);
     const isCompatible = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
     const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
 
@@ -61,6 +63,6 @@ export async function POST(request, { params }) {
     return NextResponse.json({ provider: providerId, connectionId: id, results });
   } catch (error) {
     console.log("Error testing models:", error);
-    return NextResponse.json({ error: "Test failed" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Test failed" }, { status: error.status || 500 });
   }
 }

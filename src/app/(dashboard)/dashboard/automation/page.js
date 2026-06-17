@@ -3,16 +3,33 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, KiroOAuthWrapper, Modal, OAuthModal } from "@/shared/components";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { isProviderDisabledFromConnections } from "@/shared/utils/providerConnectionStats";
 
 function getConnectionLabel(count) {
   return `${count} connection${count === 1 ? "" : "s"}`;
 }
 
-function KiroAutomationPanel({ providerInfo, onRefresh }) {
+function getAutomationCardClasses(disabled = false) {
+  return `flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border px-4 py-3 text-left transition-colors ${
+    disabled
+      ? "cursor-not-allowed border-border bg-surface opacity-50"
+      : "border-border bg-surface hover:border-primary/40 hover:bg-primary/5"
+  }`;
+}
+
+function getProviderDisabledMessage(providerInfo, providerId) {
+  if (providerInfo?.systemDisabled) {
+    return `${providerInfo?.name || providerId} is permanently disabled by the system because the upstream rejects this integration with code 11140: request illegal.`;
+  }
+  return `${providerInfo?.name || providerId} is disabled. Re-enable it from the Providers tab to use this feature.`;
+}
+
+function KiroAutomationPanel({ providerInfo, onRefresh, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [bulkJob, setBulkJob] = useState(null);
   const [initialFlow, setInitialFlow] = useState(null);
   const openFlow = (flow) => {
+    if (disabled) return;
     setInitialFlow({ ...flow, key: Date.now() });
     setIsOpen(true);
   };
@@ -70,7 +87,8 @@ function KiroAutomationPanel({ providerInfo, onRefresh }) {
             key={option.id}
             type="button"
             onClick={option.action}
-            className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+            disabled={disabled}
+            className={getAutomationCardClasses(disabled)}
           >
             <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
               <span className="material-symbols-outlined text-[20px] text-primary">{option.icon}</span>
@@ -91,6 +109,7 @@ function KiroAutomationPanel({ providerInfo, onRefresh }) {
             size="sm"
             variant="secondary"
             icon="monitoring"
+            disabled={disabled}
             onClick={() => openFlow({ method: "import", importMode: "bulk-account" })}
           >
             Resume Bulk Progress
@@ -98,7 +117,7 @@ function KiroAutomationPanel({ providerInfo, onRefresh }) {
         )}
       </div>
       <KiroOAuthWrapper
-        isOpen={isOpen}
+        isOpen={isOpen && !disabled}
         providerInfo={providerInfo}
         onSuccess={onRefresh}
         onRefresh={onRefresh}
@@ -111,13 +130,13 @@ function KiroAutomationPanel({ providerInfo, onRefresh }) {
   );
 }
 
-function CodeBuddyBulkTokenModal({ isOpen, onClose, onSuccess }) {
+function CodeBuddyBulkTokenModal({ isOpen, onClose, onSuccess, disabled = false }) {
   const [tokens, setTokens] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
   const handleImport = async () => {
-    if (!tokens.trim()) return;
+    if (disabled || !tokens.trim()) return;
     setLoading(true);
     setResult(null);
     try {
@@ -153,7 +172,7 @@ function CodeBuddyBulkTokenModal({ isOpen, onClose, onSuccess }) {
           placeholder={"eyJhbGciOiJSUzI1NiIs...\neyJhbGciOiJSUzI1NiIs...\neyJhbGciOiJSUzI1NiIs..."}
           value={tokens}
           onChange={(e) => setTokens(e.target.value)}
-          disabled={loading}
+          disabled={loading || disabled}
         />
         {result && (
           <div className={"mb-3 rounded-lg p-3 text-xs " + (result.success ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400")}>
@@ -165,7 +184,7 @@ function CodeBuddyBulkTokenModal({ isOpen, onClose, onSuccess }) {
           <button
             type="button"
             onClick={handleImport}
-            disabled={loading || !tokens.trim()}
+            disabled={loading || disabled || !tokens.trim()}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
           >
             {loading ? "Importing..." : "Import Tokens"}
@@ -176,7 +195,7 @@ function CodeBuddyBulkTokenModal({ isOpen, onClose, onSuccess }) {
   );
 }
 
-function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
+function CodeBuddyAutomationPanel({ providerInfo, onRefresh, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [isBulkTokenOpen, setIsBulkTokenOpen] = useState(false);
@@ -187,7 +206,8 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
         <button
           type="button"
           onClick={() => setIsBulkOpen(true)}
-          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
         >
           <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
             <span className="material-symbols-outlined text-[20px] text-primary">group_add</span>
@@ -200,7 +220,8 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
         <button
           type="button"
           onClick={() => setIsBulkTokenOpen(true)}
-          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
         >
           <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
             <span className="material-symbols-outlined text-[20px] text-primary">playlist_add</span>
@@ -213,7 +234,8 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
         >
           <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
             <span className="material-symbols-outlined text-[20px] text-primary">login</span>
@@ -225,12 +247,13 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
         </button>
       </div>
       <CodeBuddyBulkTokenModal
-        isOpen={isBulkTokenOpen}
+        isOpen={isBulkTokenOpen && !disabled}
+        disabled={disabled}
         onClose={() => setIsBulkTokenOpen(false)}
         onSuccess={onRefresh}
       />
       <BulkAccountAutomationModal
-        isOpen={isBulkOpen}
+        isOpen={isBulkOpen && !disabled}
         provider="codebuddy"
         title="CodeBuddy Bulk GSuite Login"
         serviceName="CodeBuddy"
@@ -238,7 +261,7 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
         onClose={() => setIsBulkOpen(false)}
       />
       <OAuthModal
-        isOpen={isOpen}
+        isOpen={isOpen && !disabled}
         provider="codebuddy"
         providerInfo={providerInfo}
         onSuccess={() => {
@@ -251,7 +274,7 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh }) {
   );
 }
 
-function QoderAutomationPanel({ providerInfo, onRefresh }) {
+function QoderAutomationPanel({ providerInfo, onRefresh, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
 
@@ -261,7 +284,8 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
         <button
           type="button"
           onClick={() => setIsBulkOpen(true)}
-          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
         >
           <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
             <span className="material-symbols-outlined text-[20px] text-primary">group_add</span>
@@ -274,7 +298,8 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
         >
           <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
             <span className="material-symbols-outlined text-[20px] text-primary">login</span>
@@ -286,7 +311,7 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
         </button>
       </div>
       <BulkAccountAutomationModal
-        isOpen={isBulkOpen}
+        isOpen={isBulkOpen && !disabled}
         provider="qoder"
         title="Qoder Bulk Google Login"
         serviceName="Qoder"
@@ -294,7 +319,7 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
         onClose={() => setIsBulkOpen(false)}
       />
       <OAuthModal
-        isOpen={isOpen}
+        isOpen={isOpen && !disabled}
         provider="qoder"
         providerInfo={providerInfo}
         onSuccess={() => {
@@ -307,13 +332,14 @@ function QoderAutomationPanel({ providerInfo, onRefresh }) {
   );
 }
 
-function OneMinAutomationPanel({ onRefresh }) {
+function OneMinAutomationPanel({ onRefresh, disabled = false }) {
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [isWarningOpen, setIsWarningOpen] = useState(false);
   const [bulkEnabled, setBulkEnabled] = useState(false);
 
   const warningText = "This 1min AI bulk login flow is disabled by default because it is still in development and has known rough edges. Creating too many accounts can trigger this response: \"Your IP address (your ip) is locked due to abnormal activity. We will unlock it after 24 hours. Thank you!\" Use only a small number of accounts. If you still want to try it, enable the development flow first.";
   const openBulkFlow = () => {
+    if (disabled) return;
     if (!bulkEnabled) {
       setIsWarningOpen(true);
       return;
@@ -329,7 +355,7 @@ function OneMinAutomationPanel({ onRefresh }) {
             <p className="font-semibold">1min AI bulk automation is disabled by default.</p>
             <p className="mt-1 -rotate-1 text-xs italic leading-relaxed">Development mode. Read the warning before enabling this flow.</p>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => setIsWarningOpen(true)}>
+          <Button size="sm" variant="secondary" disabled={disabled} onClick={() => setIsWarningOpen(true)}>
             {bulkEnabled ? "Read Warning" : "Enable Development Flow"}
           </Button>
         </div>
@@ -339,8 +365,11 @@ function OneMinAutomationPanel({ onRefresh }) {
         <button
           type="button"
           onClick={openBulkFlow}
+          disabled={disabled}
           className={`flex min-h-[112px] min-w-0 flex-col gap-2 rounded-lg border px-4 py-3 text-left transition-colors ${
-            bulkEnabled
+            disabled
+              ? "cursor-not-allowed border-border bg-surface opacity-50"
+              : bulkEnabled
               ? "border-border bg-surface hover:border-primary/40 hover:bg-primary/5"
               : "border-amber-300 bg-amber-50/70 opacity-80 hover:border-amber-400 dark:border-amber-800 dark:bg-amber-900/10"
           }`}
@@ -359,7 +388,7 @@ function OneMinAutomationPanel({ onRefresh }) {
       </div>
 
       <Modal
-        isOpen={isWarningOpen}
+        isOpen={isWarningOpen && !disabled}
         title="1min AI Development Warning"
         onClose={() => setIsWarningOpen(false)}
         size="md"
@@ -385,7 +414,7 @@ function OneMinAutomationPanel({ onRefresh }) {
       </Modal>
 
       <BulkAccountAutomationModal
-        isOpen={isBulkOpen}
+        isOpen={isBulkOpen && !disabled}
         provider="1min-ai"
         title="1min AI Bulk Login"
         serviceName="1min AI"
@@ -467,13 +496,20 @@ export default function AutomationPage() {
   const activeProvider = AUTOMATION_PROVIDERS.find((provider) => provider.id === activeProviderId) || AUTOMATION_PROVIDERS[0];
   const providerInfo = AI_PROVIDERS[activeProvider.id] || { id: activeProvider.id, name: activeProvider.label };
   const ProviderPanel = activeProvider.component;
-  const providerCounts = useMemo(() => {
-    const counts = {};
+  const providerStates = useMemo(() => {
+    const states = {};
     for (const provider of AUTOMATION_PROVIDERS) {
-      counts[provider.id] = connections.filter((connection) => connection.provider === provider.id).length;
+      const providerConnections = connections.filter((connection) => connection.provider === provider.id);
+      states[provider.id] = {
+        count: providerConnections.length,
+        disabled: (AI_PROVIDERS[provider.id]?.systemDisabled === true)
+          || isProviderDisabledFromConnections(providerConnections),
+      };
     }
-    return counts;
+    return states;
   }, [connections]);
+  const activeProviderState = providerStates[activeProvider.id] || { count: 0, disabled: false };
+  const providerDisabledMessage = getProviderDisabledMessage(providerInfo, activeProvider.id);
 
   if (loading) {
     return (
@@ -493,6 +529,7 @@ export default function AutomationPage() {
       <div className="grid gap-3 sm:grid-cols-2">
         {AUTOMATION_PROVIDERS.map((provider) => {
           const selected = provider.id === activeProviderId;
+          const providerMeta = AI_PROVIDERS[provider.id] || null;
           return (
             <button
               key={provider.id}
@@ -506,9 +543,21 @@ export default function AutomationPage() {
             >
               <span className="material-symbols-outlined text-[22px]">{provider.icon}</span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{provider.label}</span>
+                <span className="flex items-center gap-2">
+                  <span className="block truncate text-sm font-semibold">{provider.label}</span>
+                  {providerMeta?.statusLabel && (
+                  <Badge variant="error" size="sm">
+                      {providerMeta.statusLabel}
+                    </Badge>
+                  )}
+                  {providerStates[provider.id]?.disabled && (
+                    <Badge variant="warning" size="sm">
+                      Disabled
+                    </Badge>
+                  )}
+                </span>
                 <span className="mt-0.5 block text-xs text-text-muted">
-                  {getConnectionLabel(providerCounts[provider.id] || 0)}
+                  {getConnectionLabel(providerStates[provider.id]?.count || 0)}
                 </span>
               </span>
             </button>
@@ -523,6 +572,11 @@ export default function AutomationPage() {
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[22px] text-primary">{activeProvider.icon}</span>
                 <h2 className="text-lg font-semibold">{activeProvider.label}</h2>
+                {providerInfo.statusLabel && (
+                  <Badge variant="error" size="sm">
+                    {providerInfo.statusLabel}
+                  </Badge>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {activeProvider.supportedModes.map((mode) => (
@@ -532,10 +586,38 @@ export default function AutomationPage() {
                 ))}
               </div>
             </div>
-            <Badge variant="success">{getConnectionLabel(providerCounts[activeProvider.id] || 0)}</Badge>
+            <Badge variant={activeProviderState.disabled ? "warning" : "success"}>
+              {getConnectionLabel(activeProviderState.count || 0)}
+            </Badge>
           </div>
 
-          <ProviderPanel providerInfo={providerInfo} onRefresh={fetchConnections} />
+          {activeProviderState.disabled && (
+            <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+              providerInfo?.systemDisabled
+                ? "border border-red-500/30 bg-red-500/10"
+                : "border border-amber-500/30 bg-amber-500/10"
+            }`}>
+              <span className={`material-symbols-outlined text-[16px] ${
+                providerInfo?.systemDisabled ? "text-red-500" : "text-amber-500"
+              }`}>block</span>
+              <p className={`text-xs leading-relaxed ${
+                providerInfo?.systemDisabled ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-300"
+              }`}>{providerDisabledMessage}</p>
+            </div>
+          )}
+
+          {providerInfo.statusNotice && !providerInfo.systemDisabled && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+              <span className="material-symbols-outlined text-[16px] text-red-500">block</span>
+              <p className="text-xs leading-relaxed text-red-600 dark:text-red-400">{providerInfo.statusNotice}</p>
+            </div>
+          )}
+
+          <ProviderPanel
+            providerInfo={providerInfo}
+            onRefresh={fetchConnections}
+            disabled={activeProviderState.disabled}
+          />
         </div>
       </Card>
     </div>

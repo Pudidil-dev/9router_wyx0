@@ -34,6 +34,8 @@ function wait(ms, signal) {
 
 async function defaultSaveQoderConnection({ tokens, email }) {
   const { createProviderConnection } = await import("../../../models/index.js");
+  const { assertProviderEnabled } = await import("@/lib/providerDisabled");
+  await assertProviderEnabled(QODER_PROVIDER_ID);
   const providerSpecificData = {
     ...(tokens.providerSpecificData || {}),
     loginEmail: email,

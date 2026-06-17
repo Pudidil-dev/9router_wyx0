@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ async function fetchAccountInfo(accessToken, domain) {
 
 export async function POST(request) {
   try {
+    await assertProviderEnabled(CODEBUDDY_PROVIDER_ID);
     const body = await request.json();
     const rawTokens = body?.tokens;
 
@@ -81,6 +83,7 @@ export async function POST(request) {
           accessToken: token,
           email,
           providerSpecificData,
+          isActive: false,
           testStatus: info.uid ? "active" : "unknown",
         });
 
@@ -112,7 +115,7 @@ export async function POST(request) {
   } catch (error) {
     return NextResponse.json(
       { error: error.message || "Failed to import tokens" },
-      { status: 500 }
+      { status: error.status || 500 }
     );
   }
 }

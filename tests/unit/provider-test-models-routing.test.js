@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getProviderConnectionById: vi.fn(),
   getApiKeys: vi.fn(),
   getConsistentMachineId: vi.fn(),
+  assertProviderEnabled: vi.fn(),
 }));
 
 vi.mock("@/lib/localDb", () => ({
@@ -13,6 +14,10 @@ vi.mock("@/lib/localDb", () => ({
 
 vi.mock("@/shared/utils/machineId", () => ({
   getConsistentMachineId: mocks.getConsistentMachineId,
+}));
+
+vi.mock("@/lib/providerDisabled", () => ({
+  assertProviderEnabled: mocks.assertProviderEnabled,
 }));
 
 vi.mock("next/server", () => ({
@@ -79,5 +84,23 @@ describe("provider test-models route kind routing", () => {
         method: "POST",
       })
     );
+  });
+
+  it("returns 409 when the provider is disabled", async () => {
+    const error = new Error("huggingface is disabled. Re-enable it from the Providers tab to use this feature.");
+    error.status = 409;
+    mocks.assertProviderEnabled.mockRejectedValueOnce(error);
+
+    const { POST } = await import("../../src/app/api/providers/[id]/test-models/route.js");
+    const req = new Request("http://localhost/api/providers/conn-hf/test-models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: "conn-hf" }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error).toContain("disabled");
   });
 });

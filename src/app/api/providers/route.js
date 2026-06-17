@@ -9,6 +9,7 @@ import {
 import { APIKEY_PROVIDERS } from "@/shared/constants/config";
 import { AI_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider } from "@/shared/constants/providers";
 import { normalizeProviderId, normalizeProviderSpecificData } from "@/lib/providerNormalization";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +113,7 @@ export async function POST(request) {
     if (!provider || !isValidProvider) {
       return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
     }
+    await assertProviderEnabled(provider);
     if (!apiKey && provider !== "ollama-local") {
       return NextResponse.json({ error: `${isWebCookieProvider ? "Cookie value" : "API Key"} is required` }, { status: 400 });
     }
@@ -190,7 +192,7 @@ export async function POST(request) {
       globalPriority: globalPriority || null,
       defaultModel: defaultModel || null,
       providerSpecificData: mergedProviderSpecificData,
-      isActive: true,
+      isActive: AI_PROVIDERS[provider]?.defaultActive !== false,
       testStatus: testStatus || "unknown",
     });
 
@@ -201,6 +203,6 @@ export async function POST(request) {
     return NextResponse.json({ connection: result }, { status: 201 });
   } catch (error) {
     console.log("Error creating provider:", error);
-    return NextResponse.json({ error: "Failed to create provider" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Failed to create provider" }, { status: error.status || 500 });
   }
 }

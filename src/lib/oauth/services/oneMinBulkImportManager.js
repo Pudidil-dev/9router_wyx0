@@ -177,6 +177,8 @@ function wait(ms, signal) {
 
 async function defaultSaveOneMinConnection({ tokens, email }) {
   const { createProviderConnection } = await import("../../../models/index.js");
+  const { assertProviderEnabled } = await import("@/lib/providerDisabled");
+  await assertProviderEnabled(ONE_MIN_PROVIDER_ID);
   const normalizedEmail = tokens.email || email || undefined;
   const hasApiKey = Boolean(tokens.apiKey);
   const providerSpecificData = {

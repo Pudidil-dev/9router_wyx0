@@ -3,6 +3,8 @@ export default {
   priority: 25,
   alias: "cb",
   uiAlias: "cb",
+  defaultActive: false,
+  systemDisabled: true,
   display: {
     name: "CodeBuddy",
     icon: "smart_toy",
@@ -14,6 +16,8 @@ export default {
     },
     deprecated: true,
     deprecationNotice: "RISK_NOTICE",
+    statusLabel: "KOID",
+    statusNotice: "CodeBuddy chat routing is currently disabled for normal use. The upstream now rejects this integration with code 11140: request illegal.",
   },
   category: "free",
   transport: {
@@ -35,10 +39,10 @@ export default {
   models: [
     { id: "default-model", name: "Default", maxInputTokens: 176000, maxOutputTokens: 24000 },
     { id: "default-model-lite", name: "Default-Lite", maxInputTokens: 176000, maxOutputTokens: 24000 },
-    { id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", maxInputTokens: 176000, maxOutputTokens: 24000 },
-    { id: "claude-opus-4.7-1m", name: "Claude Opus 4.7 1M", maxInputTokens: 1000000, maxOutputTokens: 24000 },
-    { id: "claude-opus-4.6", name: "Claude Opus 4.6", maxInputTokens: 176000, maxOutputTokens: 24000 },
-    { id: "claude-haiku-4.5", name: "Claude Haiku 4.5", maxInputTokens: 176000, maxOutputTokens: 24000 },
+    { id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", maxInputTokens: 176000, maxOutputTokens: 24000, aliases: ["claude-sonnet-4-6"] },
+    { id: "claude-opus-4.7-1m", name: "Claude Opus 4.7 1M", maxInputTokens: 1000000, maxOutputTokens: 24000, aliases: ["claude-opus-4-7", "claude-opus-4-7-1m"] },
+    { id: "claude-opus-4.6", name: "Claude Opus 4.6", maxInputTokens: 176000, maxOutputTokens: 24000, aliases: ["claude-opus-4-6"] },
+    { id: "claude-haiku-4.5", name: "Claude Haiku 4.5", maxInputTokens: 176000, maxOutputTokens: 24000, aliases: ["claude-haiku-4-5"] },
     { id: "gpt-5.5", name: "GPT-5.5", maxInputTokens: 1000000, maxOutputTokens: 72000 },
     { id: "gpt-5.4", name: "GPT-5.4", maxInputTokens: 272000, maxOutputTokens: 128000 },
     { id: "gpt-5.3-codex", name: "GPT-5.3-Codex", maxInputTokens: 272000, maxOutputTokens: 128000 },

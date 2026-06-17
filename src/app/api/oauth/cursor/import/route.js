@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { CursorService } from "@/lib/oauth/services/cursor";
 import { createProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * POST /api/oauth/cursor/import
@@ -12,6 +13,7 @@ import { createProviderConnection } from "@/models";
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("cursor");
     const { accessToken, machineId } = await request.json();
 
     if (!accessToken || typeof accessToken !== "string") {
@@ -66,7 +68,7 @@ export async function POST(request) {
     });
   } catch (error) {
     console.log("Cursor import token error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }
 

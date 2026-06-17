@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createProviderConnection } from "@/models";
 import { extractCodexAccountInfo } from "@/lib/oauth/providers";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * POST /api/oauth/codex/import-token
@@ -11,6 +12,7 @@ import { extractCodexAccountInfo } from "@/lib/oauth/providers";
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("codex");
     const { accessToken, name } = await request.json();
 
     if (!accessToken || typeof accessToken !== "string") {
@@ -91,6 +93,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.log("Codex access token import error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getKiroBulkImportManager, parseKiroBulkAccounts } from "@/lib/oauth/services/kiroBulkImportManager";
 import { validateAndSaveKiroImportedToken } from "@/lib/oauth/services/kiroConnections";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * POST /api/oauth/kiro/import
@@ -13,6 +14,7 @@ import { validateAndSaveKiroImportedToken } from "@/lib/oauth/services/kiroConne
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("kiro");
     const body = await request.json();
     const mode = body?.mode === "account" ? "account" : "token";
 
@@ -105,6 +107,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.log("Kiro import token error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

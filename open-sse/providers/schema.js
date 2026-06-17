@@ -11,11 +11,12 @@ import { DEFAULT_RETRY_CONFIG, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtim
  * @property {string[]}[aliases]      Extra lookup tokens resolving to this provider.
  * @property {string}  [uiAlias]      Token shown in UI badges.
  * @property {string}   category      "apikey"|"oauth"|"freeTier"|... drives UI grouping. REQUIRED.
+ * @property {boolean} [defaultActive] Whether newly-created connections should default active. Defaults true.
  * @property {string}  [authType]     "apikey"|"oauth" auth hint.
  * @property {string[]}[authModes]    Allowed auth modes when provider supports both.
  * @property {boolean} [hasOAuth]     Provider exposes an OAuth flow.
  * @property {boolean} [noAuth]       Provider needs no credentials (local/free).
- * @property {Object}  [display]      UI: {name,icon,color,textIcon,website,notice,deprecated,deprecationNotice,kindNotice,mediaPriority}.
+ * @property {Object}  [display]      UI: {name,icon,color,textIcon,website,notice,deprecated,deprecationNotice,statusLabel,statusNotice,kindNotice,mediaPriority}.
  * @property {Object}  [transport]    Runtime HTTP config (see TransportConfig below). Builds PROVIDERS[id].
  * @property {Object}  [oauth]        OAuth flow config (see OAuthConfig). Builds PROVIDER_OAUTH[id].
  * @property {Object}  [media]        Non-LLM services (see MediaConfig). Builds PROVIDER_MEDIA[id].

@@ -46,8 +46,13 @@ export const STREAM_STALL_TIMEOUT_MS = envMs("STREAM_STALL_TIMEOUT_MS", 360 * 10
 // Time-to-first-token timeout (prompt prefill). Env: STREAM_FIRST_CHUNK_TIMEOUT_MS.
 export const STREAM_FIRST_CHUNK_TIMEOUT_MS = envMs("STREAM_FIRST_CHUNK_TIMEOUT_MS", 200 * 1000);
 
-// Fetch connect timeout: abort if upstream doesn't return response headers within this duration
+// Fetch connect timeout: abort if upstream doesn't return response headers within this duration.
+// Env: FETCH_CONNECT_TIMEOUT_MS.
 export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
+
+// Hard pre-stream request timeout. Providers with slower uploads/prefill can override this.
+// Env: FETCH_REQUEST_TIMEOUT_MS.
+export const FETCH_REQUEST_TIMEOUT_MS = envMs("FETCH_REQUEST_TIMEOUT_MS", 180 * 1000);
 
 // Default token limits
 export const DEFAULT_MAX_TOKENS = 64000;

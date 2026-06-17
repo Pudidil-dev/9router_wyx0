@@ -24,6 +24,7 @@ const CODEBUDDY_ALLOWED_REQUEST_FIELDS = [
   "parallel_tool_calls",
   "response_format",
 ];
+const CODEBUDDY_REQUEST_ILLEGAL_CODE = 11140;
 
 function codeBuddyRequestId() {
   return randomUUID().replace(/-/g, "");
@@ -210,6 +211,21 @@ function buildCodeBuddyBody(model, transformed, maxTokens, maxCompletionTokens) 
   }
   return body;
 }
+
+function parseCodeBuddyErrorBody(bodyText) {
+  try {
+    const parsed = JSON.parse(bodyText);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function formatCodeBuddyRequestIllegalMessage(parsed, fallbackText) {
+  const upstream = fallbackText || JSON.stringify(parsed);
+  return `${upstream} - CodeBuddy rejected the chat request as illegal. This usually means the connection is using a plugin OAuth access token instead of a CodeBuddy API key created from the browser-backed import flow, or the account is not allowed to call this chat endpoint.`;
+}
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
 const XAPIKEY = { combined: true, header: "x-api-key", scheme: "raw" };
@@ -309,6 +325,32 @@ export class DefaultExecutor extends BaseExecutor {
     return gzipSync(bodyStr);
   }
 
+  parseError(response, bodyText) {
+    if (this.provider !== "codebuddy") return super.parseError(response, bodyText);
+    const parsed = parseCodeBuddyErrorBody(bodyText);
+    if (parsed?.code === CODEBUDDY_REQUEST_ILLEGAL_CODE) {
+      return {
+        status: response.status,
+        message: formatCodeBuddyRequestIllegalMessage(parsed, bodyText),
+      };
+    }
+    const message = parsed?.msg || parsed?.message || bodyText;
+    return { status: response.status, message: message || `HTTP ${response.status}` };
+  }
+
+  async shouldRefreshForResponse(response) {
+    if (this.provider !== "codebuddy") return super.shouldRefreshForResponse(response);
+    if (response.status === 401) return true;
+    if (response.status !== 403) return false;
+    try {
+      const parsed = await response.clone().json();
+      if (parsed?.code === CODEBUDDY_REQUEST_ILLEGAL_CODE) return false;
+    } catch {
+      // If the response cannot be inspected, keep the legacy refresh behavior.
+    }
+    return true;
+  }
+
   // Fallback json_schema → json_object for openai-compatible providers without native Structured Output.
   applyJsonSchemaFallback(body) {
     if (!this.provider?.startsWith?.("openai-compatible-")) return body;
@@ -379,7 +421,7 @@ export class DefaultExecutor extends BaseExecutor {
       headers["Content-Type"] = "application/json; charset=utf-8";
       headers["User-Agent"] = "CLI/2.105.2 CodeBuddy/2.105.2";
       headers["X-Requested-With"] = "XMLHttpRequest";
-      headers["X-Domain"] = credentials.providerSpecificData?.domain || "www.codebuddy.ai";
+      headers["X-Domain"] = credentials.providerSpecificData?.domain || credentials.providerSpecificData?.rawAuth?.domain || "www.codebuddy.ai";
       headers["X-Request-ID"] = requestId;
       headers["X-Conversation-ID"] = conversationId;
       headers["X-Conversation-Request-ID"] = conversationId;
@@ -389,6 +431,7 @@ export class DefaultExecutor extends BaseExecutor {
       headers["X-IDE-Name"] = "CLI";
       headers["X-IDE-Version"] = "2.105.2";
       headers["X-Private-Data"] = "false";
+      headers["X-Product"] = "SaaS";
     } else {
       const desc = AUTH_DESCRIPTORS[this.provider] || this.resolveAuthDescriptor();
       // Hooks run BEFORE auth so dynamic overlays (claude cached headers) can't clobber the token.

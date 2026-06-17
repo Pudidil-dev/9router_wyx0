@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { KiroService } from "@/lib/oauth/services/kiro";
 import { createProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * POST /api/oauth/kiro/api-key
@@ -10,6 +11,7 @@ import { createProviderConnection } from "@/models";
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("kiro");
     const { apiKey, region } = await request.json();
 
     if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
@@ -58,6 +60,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.log("Kiro API key import error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

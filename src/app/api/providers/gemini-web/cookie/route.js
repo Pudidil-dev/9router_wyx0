@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * Gemini Web Cookie Authentication
@@ -187,6 +188,7 @@ async function probeSession(cookieString, sapisid) {
 
 export async function POST(request) {
   try {
+    await assertProviderEnabled("gemini-web");
     const { cookie } = await request.json();
 
     if (!cookie || typeof cookie !== "string") {
@@ -265,6 +267,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("gemini-web cookie auth error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

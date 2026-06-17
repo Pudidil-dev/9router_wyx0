@@ -57,7 +57,7 @@ export function isConnectionIssue(connection = {}) {
 
 export function summarizeProviderConnections(connections = []) {
   const total = connections.length;
-  const allDisabled = total > 0 && connections.every((connection) => connection.isActive === false);
+  const allDisabled = isProviderDisabledFromConnections(connections);
 
   let connected = 0;
   let issue = 0;
@@ -83,6 +83,10 @@ export function summarizeProviderConnections(connections = []) {
     issue,
     added: Math.max(0, total - connected - issue),
   };
+}
+
+export function isProviderDisabledFromConnections(connections = []) {
+  return connections.length > 0 && connections.every((connection) => connection.isActive === false);
 }
 
 export function getProviderConnectionsForSummary(allConnections = [], providerId, authType = null) {

@@ -8,6 +8,7 @@ const managerMock = {
   cancelJob: vi.fn(),
   openManualSession: vi.fn(),
 };
+const assertProviderEnabled = vi.fn();
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -39,6 +40,10 @@ vi.mock("@/lib/oauth/services/kiroBulkImportManager", () => ({
       .filter(Boolean),
   })),
   getKiroBulkImportManager: vi.fn(() => managerMock),
+}));
+
+vi.mock("@/lib/providerDisabled", () => ({
+  assertProviderEnabled,
 }));
 
 describe("Kiro bulk import routes", () => {
@@ -85,6 +90,23 @@ describe("Kiro bulk import routes", () => {
       concurrency: 6,
     });
     expect(response.body.job.jobId).toBe("job-1");
+  });
+
+  it("returns 409 when Kiro is disabled", async () => {
+    const error = new Error("Kiro is disabled. Re-enable it from the Providers tab to use this feature.");
+    error.status = 409;
+    assertProviderEnabled.mockRejectedValueOnce(error);
+
+    const { POST } = await import("../../src/app/api/oauth/kiro/bulk-import/route.js");
+    const response = await POST({
+      json: async () => ({
+        accounts: ["user@gmail.com|pw"],
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("disabled");
+    expect(managerMock.startJob).not.toHaveBeenCalled();
   });
 
   it("returns 404 for unknown status job", async () => {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 const GITLAB_DEFAULT_BASE = "https://gitlab.com";
 
@@ -9,6 +10,7 @@ const GITLAB_DEFAULT_BASE = "https://gitlab.com";
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("gitlab");
     let body;
     try {
       body = await request.json();
@@ -57,6 +59,6 @@ export async function POST(request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("GitLab PAT auth error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

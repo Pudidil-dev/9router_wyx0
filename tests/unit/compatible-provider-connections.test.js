@@ -8,6 +8,8 @@ const originalDataDir = process.env.DATA_DIR;
 async function setupTestContext(nodeData) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-compatible-provider-"));
   process.env.DATA_DIR = tempDir;
+  try { global._dbAdapter?.instance?.close?.(); } catch {}
+  delete global._dbAdapter;
   vi.resetModules();
   vi.doMock("next/server", () => ({
     NextResponse: {
@@ -18,6 +20,9 @@ async function setupTestContext(nodeData) {
         });
       },
     },
+  }));
+  vi.doMock("@/lib/providerDisabled", () => ({
+    assertProviderEnabled: vi.fn(),
   }));
 
   const { POST } = await import("@/app/api/providers/route.js");
@@ -33,6 +38,8 @@ async function setupTestContext(nodeData) {
     POST,
     getProviderConnections,
     cleanup() {
+      try { global._dbAdapter?.instance?.close?.(); } catch {}
+      delete global._dbAdapter;
       fs.rmSync(tempDir, { recursive: true, force: true });
     },
   };
@@ -75,10 +82,11 @@ describe("compatible provider connections API", () => {
 
   afterEach(() => {
     vi.doUnmock("next/server");
-    vi.resetModules();
+    vi.doUnmock("@/lib/providerDisabled");
     vi.clearAllMocks();
     cleanup();
     cleanup = () => {};
+    vi.resetModules();
     if (originalDataDir === undefined) delete process.env.DATA_DIR;
     else process.env.DATA_DIR = originalDataDir;
   });

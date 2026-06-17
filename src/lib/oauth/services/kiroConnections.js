@@ -1,5 +1,6 @@
 import { createProviderConnection } from "../../../models/index.js";
 import { KiroService } from "./kiro.js";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 function formatSocialProvider(provider) {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
@@ -18,6 +19,7 @@ export async function saveKiroOAuthConnection({
   authMethod,
   providerLabel,
 }) {
+  await assertProviderEnabled("kiro");
   const kiroService = new KiroService();
   const email = kiroService.extractEmailFromJWT(accessToken);
 

@@ -4,6 +4,7 @@ const managerMock = {
   startJob: vi.fn(),
   cancelJob: vi.fn(),
 };
+const assertProviderEnabled = vi.fn();
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -30,6 +31,10 @@ vi.mock("@/lib/oauth/services/qoderBulkImportManager", () => ({
     });
     return { parsed, invalidLines };
   }),
+}));
+
+vi.mock("@/lib/providerDisabled", () => ({
+  assertProviderEnabled,
 }));
 
 describe("Qoder bulk import routes", () => {
@@ -77,6 +82,23 @@ describe("Qoder bulk import routes", () => {
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("Invalid account format");
     expect(response.body.invalidLines).toEqual([1]);
+  });
+
+  it("returns 409 when Qoder is disabled", async () => {
+    const error = new Error("Qoder is disabled. Re-enable it from the Providers tab to use this feature.");
+    error.status = 409;
+    assertProviderEnabled.mockRejectedValueOnce(error);
+
+    const { POST } = await import("../../src/app/api/oauth/qoder/bulk-import/route.js");
+    const response = await POST({
+      json: async () => ({
+        accounts: ["user@example.com|secret"],
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("disabled");
+    expect(managerMock.startJob).not.toHaveBeenCalled();
   });
 
   it("cancels a known job", async () => {

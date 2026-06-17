@@ -95,3 +95,11 @@ chat.txt
 
 # Refactor backup reference (do not bundle/lint)
 open-sse.old/
+
+# ai folder (do not bundle/lint)
+.claude/
+.playwright-mcp/
+.serena/
+
+# .md files (except for README.md and docs)
+codebuddy_fix_handoff.md

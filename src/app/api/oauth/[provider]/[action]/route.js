@@ -7,6 +7,8 @@ import {
   pollForToken 
 } from "@/lib/oauth/providers";
 import { createProviderConnection } from "@/models";
+import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 import {
   startCodexProxy,
   stopCodexProxy,
@@ -19,6 +21,10 @@ import {
   getXaiSessionStatus,
   clearXaiSession,
 } from "@/lib/oauth/utils/server";
+
+function defaultConnectionActive(provider) {
+  return AI_PROVIDERS[provider]?.defaultActive !== false;
+}
 
 async function completeXaiManualCode(code, state) {
   const session = state ? getXaiSessionStatus(state) : null;
@@ -72,6 +78,7 @@ export async function GET(request, { params }) {
     const { searchParams } = new URL(request.url);
 
     if (action === "authorize") {
+      await assertProviderEnabled(provider);
       const redirectUri = searchParams.get("redirect_uri") || "http://localhost:8080/callback";
       // Collect provider-specific meta params (e.g. gitlab passes baseUrl, clientId, clientSecret)
       const reservedParams = new Set(["redirect_uri"]);
@@ -82,6 +89,7 @@ export async function GET(request, { params }) {
     }
 
     if (action === "start-proxy") {
+      await assertProviderEnabled(provider);
       if (!["codex", "xai"].includes(provider)) {
         return NextResponse.json({ error: "Proxy only supported for codex/xai" }, { status: 400 });
       }
@@ -133,6 +141,7 @@ export async function GET(request, { params }) {
     }
 
     if (action === "device-code") {
+      await assertProviderEnabled(provider);
       const providerData = getProvider(provider);
       if (providerData.flowType !== "device_code") {
         return NextResponse.json({ error: "Provider does not support device code flow" }, { status: 400 });
@@ -171,7 +180,7 @@ export async function GET(request, { params }) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     console.log("OAuth GET error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }
 
@@ -188,6 +197,7 @@ export async function POST(request, { params }) {
     }
 
     if (action === "exchange") {
+      await assertProviderEnabled(provider);
       const { code, redirectUri, codeVerifier, state, meta } = body;
 
       // Detect if "code" is actually a raw JWT access token (starts with eyJ)
@@ -249,6 +259,7 @@ export async function POST(request, { params }) {
         expiresAt: tokenData.expiresIn 
           ? new Date(Date.now() + tokenData.expiresIn * 1000).toISOString() 
           : null,
+        isActive: defaultConnectionActive(provider),
         testStatus: "active",
       });
 
@@ -264,6 +275,7 @@ export async function POST(request, { params }) {
     }
 
     if (action === "poll") {
+      await assertProviderEnabled(provider);
       const { deviceCode, codeVerifier, extraData } = body;
 
       if (!deviceCode) {
@@ -303,6 +315,7 @@ export async function POST(request, { params }) {
           expiresAt: result.tokens.expiresIn 
             ? new Date(Date.now() + result.tokens.expiresIn * 1000).toISOString() 
             : null,
+          isActive: defaultConnectionActive(provider),
           testStatus: "active",
         });
 
@@ -327,6 +340,7 @@ export async function POST(request, { params }) {
     }
 
     if (action === "manual-code") {
+      await assertProviderEnabled(provider);
       if (provider !== "xai") {
         return NextResponse.json({ error: "Manual code only supported for xai" }, { status: 400 });
       }
@@ -338,6 +352,6 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     console.log("OAuth POST error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

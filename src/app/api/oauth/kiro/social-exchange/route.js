@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { exchangeAndSaveKiroSocialConnection } from "@/lib/oauth/services/kiroConnections";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * POST /api/oauth/kiro/social-exchange
@@ -8,6 +9,7 @@ import { exchangeAndSaveKiroSocialConnection } from "@/lib/oauth/services/kiroCo
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("kiro");
     const { code, codeVerifier, provider } = await request.json();
 
     if (!code || !codeVerifier) {
@@ -36,6 +38,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.log("Kiro social exchange error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

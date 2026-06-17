@@ -1,4 +1,4 @@
-import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, FETCH_CONNECT_TIMEOUT_MS, FETCH_REQUEST_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { shouldRefreshCredentials } from "../services/oauthCredentialManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
@@ -79,6 +79,11 @@ export class BaseExecutor {
     return body;
   }
 
+  // Override in subclass for provider-specific body encoding/header mutation
+  prepareRequestBody(transformedBody, headers) {
+    return JSON.stringify(transformedBody);
+  }
+
   shouldRetry(status, urlIndex) {
     return status === HTTP_STATUS.RATE_LIMITED && urlIndex + 1 < this.getFallbackCount();
   }
@@ -94,6 +99,10 @@ export class BaseExecutor {
 
   parseError(response, bodyText) {
     return { status: response.status, message: bodyText || `HTTP ${response.status}` };
+  }
+
+  async shouldRefreshForResponse(response) {
+    return response.status === HTTP_STATUS.UNAUTHORIZED || response.status === HTTP_STATUS.FORBIDDEN;
   }
 
   async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
@@ -130,23 +139,30 @@ export class BaseExecutor {
 
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 
-      // Abort if upstream doesn't return response headers within connection timeout
+      // Abort if upstream doesn't return response headers within the provider's timeout windows.
       const connectCtrl = new AbortController();
-      const timeoutMs = this.config?.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
-      const connectTimer = setTimeout(() => connectCtrl.abort(new Error("fetch connect timeout")), timeoutMs);
-      const mergedSignal = signal ? AbortSignal.any([signal, connectCtrl.signal]) : connectCtrl.signal;
+      const requestCtrl = new AbortController();
+      const connectTimeoutMs = this.config?.connectTimeoutMs || this.config?.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
+      const requestTimeoutMs = this.config?.requestTimeoutMs || FETCH_REQUEST_TIMEOUT_MS;
+      const connectTimer = setTimeout(() => connectCtrl.abort(new Error("fetch connect timeout")), connectTimeoutMs);
+      const requestTimer = setTimeout(() => requestCtrl.abort(new Error("fetch request timeout")), requestTimeoutMs);
+      const signals = [connectCtrl.signal, requestCtrl.signal];
+      if (signal) signals.push(signal);
+      const mergedSignal = AbortSignal.any(signals);
 
       try {
-        const bodyStr = JSON.stringify(transformedBody);
+        const requestBody = this.prepareRequestBody(transformedBody, headers);
+        const bodyBytes = typeof requestBody === "string" ? Buffer.byteLength(requestBody) : requestBody?.length ?? 0;
         const fetchT0 = Date.now();
-        dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
+        dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyBytes}B | connectTimeout=${connectTimeoutMs}ms | requestTimeout=${requestTimeoutMs}ms`);
         const response = await proxyAwareFetch(url, {
           method: "POST",
           headers,
-          body: bodyStr,
+          body: requestBody,
           signal: mergedSignal
         }, proxyOptions);
         clearTimeout(connectTimer);
+        clearTimeout(requestTimer);
         const ct = response.headers?.get?.("content-type") || "";
         const cl = response.headers?.get?.("content-length") || "?";
         dbg("FETCH", `${this.provider.toUpperCase()} ← ${response.status} | ttft=${Date.now() - fetchT0}ms | ct=${ct} | cl=${cl}`);
@@ -162,11 +178,14 @@ export class BaseExecutor {
         return { response, url, headers, transformedBody };
       } catch (error) {
         clearTimeout(connectTimer);
+        clearTimeout(requestTimer);
         lastError = error;
         const isConnectTimeout = connectCtrl.signal.aborted && error.name === "AbortError";
-        dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${isConnectTimeout ? " (connect timeout)" : ""}`);
-        // Connect timeout is internal — convert to retryable network error, don't propagate AbortError
-        if (error.name === "AbortError" && !isConnectTimeout) throw error;
+        const isRequestTimeout = requestCtrl.signal.aborted && error.name === "AbortError";
+        const timeoutLabel = isConnectTimeout ? " (connect timeout)" : isRequestTimeout ? " (request timeout)" : "";
+        dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${timeoutLabel}`);
+        // Internal timeouts are converted to retryable network errors; external aborts propagate.
+        if (error.name === "AbortError" && !isConnectTimeout && !isRequestTimeout) throw error;
 
         // Map network/fetch exceptions to 502 retry config
         if (await tryRetry(urlIndex, HTTP_STATUS.BAD_GATEWAY, `network "${error.message}"`)) { urlIndex--; continue; }

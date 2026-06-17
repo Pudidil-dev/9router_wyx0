@@ -46,5 +46,3 @@ export { default as CapacityBadges } from "./CapacityBadges";
 
 // Layouts
 export * from "./layouts";
-
-

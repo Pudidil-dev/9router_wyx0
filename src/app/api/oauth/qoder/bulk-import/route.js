@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getQoderBulkImportManager, parseQoderBulkAccounts } from "@/lib/oauth/services/qoderBulkImportManager";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
   try {
+    await assertProviderEnabled("qoder");
     const body = await request.json();
     const accounts = Array.isArray(body?.accounts) ? body.accounts : [];
     const { parsed, invalidLines } = parseQoderBulkAccounts(accounts);
@@ -38,7 +40,7 @@ export async function POST(request) {
       job,
     });
   } catch (error) {
-    const status = Array.isArray(error?.invalidLines) ? 400 : 500;
+    const status = Array.isArray(error?.invalidLines) ? 400 : (error?.status || 500);
     return NextResponse.json(
       {
         error: error?.error || error?.message || "Failed to start Qoder bulk import",

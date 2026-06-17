@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * iFlow Cookie-Based Authentication
@@ -8,6 +9,7 @@ import { createProviderConnection } from "@/models";
  */
 export async function POST(request) {
   try {
+    await assertProviderEnabled("iflow");
     const { cookie } = await request.json();
 
     if (!cookie || typeof cookie !== "string") {
@@ -132,6 +134,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("iFlow cookie auth error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

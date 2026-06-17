@@ -12,6 +12,7 @@ import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { classifyConnectionStatus, CONNECTION_STATUS_FILTERS, filterConnectionByStatus, isTerminalConnectionStatus } from "@/shared/utils/connectionStatus";
+import { isProviderDisabledFromConnections } from "@/shared/utils/providerConnectionStats";
 import ModelRow from "./ModelRow";
 import PassthroughModelsSection from "./PassthroughModelsSection";
 import CompatibleModelsSection from "./CompatibleModelsSection";
@@ -142,10 +143,12 @@ export default function ProviderDetailPage() {
   }, []);
 
   const openOAuthConnection = () => {
+    if (providerActionsDisabled) return;
     setShowOAuthModal(true);
   };
 
   const triggerOAuthConnection = () => {
+    if (providerActionsDisabled) return;
     if (providerId === "kiro" || providerId === "codebuddy" || providerId === "qoder" || providerId === "1min-ai") {
       router.push(`/dashboard/automation?provider=${providerId}`);
       return;
@@ -169,11 +172,13 @@ export default function ProviderDetailPage() {
   };
 
   const triggerApiKeyConnection = () => {
+    if (providerActionsDisabled) return;
     setAddConnectionError("");
     setShowAddApiKeyModal(true);
   };
 
   const triggerAddConnection = () => {
+    if (providerActionsDisabled) return;
     if (providerId === "gemini-web") {
       setShowGeminiWebCookieModal(true);
       return;
@@ -186,6 +191,10 @@ export default function ProviderDetailPage() {
   };
 
   const handleAgRiskConfirm = () => {
+    if (providerActionsDisabled) {
+      setShowAgRiskModal(false);
+      return;
+    }
     if (typeof window !== "undefined") {
       window.localStorage.setItem(AG_RISK_STORAGE_KEY, "true");
     }
@@ -228,6 +237,10 @@ export default function ProviderDetailPage() {
   const providerDisplayAlias = isCompatible
     ? (providerNode?.prefix || providerId)
     : providerAlias;
+  const providerActionsDisabled = providerInfo?.systemDisabled || isProviderDisabledFromConnections(connections);
+  const providerDisabledMessage = providerInfo?.systemDisabled
+    ? `${providerInfo?.name || providerId} is permanently disabled by the system because the upstream rejects this integration with code 11140: request illegal.`
+    : `${providerInfo?.name || providerId} is disabled. Re-enable at least one connection to use provider actions.`;
 
   const fetchDisabledModels = useCallback(async () => {
     try {
@@ -420,6 +433,7 @@ export default function ProviderDetailPage() {
   };
 
   const handleRoundRobinToggle = (enabled) => {
+    if (providerActionsDisabled) return;
     const strategy = enabled ? "round-robin" : null;
     const sticky = enabled ? (providerStickyLimit || "1") : providerStickyLimit;
     if (enabled && !providerStickyLimit) setProviderStickyLimit("1");
@@ -428,6 +442,7 @@ export default function ProviderDetailPage() {
   };
 
   const handleStickyLimitChange = (value) => {
+    if (providerActionsDisabled) return;
     setProviderStickyLimit(value);
     saveProviderStrategy("round-robin", value);
   };
@@ -686,6 +701,7 @@ export default function ProviderDetailPage() {
   };
 
   const handleRunOneByOneTest = async () => {
+    if (providerActionsDisabled) return;
     if (oneByOneRunning || connections.length === 0) return;
 
     const queuedState = Object.fromEntries(
@@ -934,6 +950,7 @@ export default function ProviderDetailPage() {
   const allSelected = filteredConnections.length > 0 && filteredConnections.every((conn) => effectiveSelectedConnectionIds.includes(conn.id));
 
   const openCodeBuddyQuotaCookieModal = () => {
+    if (providerActionsDisabled) return;
     if (connections.length > 1 && selectedConnections.length === 0) {
       alert("Select the CodeBuddy connection(s) that should use this quota cookie first.");
       return;
@@ -975,6 +992,7 @@ export default function ProviderDetailPage() {
   })();
 
   const openBulkProxyModal = () => {
+    if (providerActionsDisabled) return;
     if (selectedConnections.length === 0) return;
     const uniquePoolIds = [...new Set(selectedConnections.map((conn) => conn.providerSpecificData?.proxyPoolId || "__none__"))];
     setBulkProxyPoolId(uniquePoolIds.length === 1 ? uniquePoolIds[0] : "__none__");
@@ -1450,6 +1468,11 @@ export default function ProviderDetailPage() {
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{providerInfo.name}</h1>
+              {providerInfo.statusLabel && (
+                <Badge variant="error" size="sm">
+                  {providerInfo.statusLabel}
+                </Badge>
+              )}
               {providerInfo.experimental && <ExperimentalBadge size="full" />}
               {(providerInfo.notice?.apiKeyUrl || providerInfo.notice?.signupUrl || providerInfo.website) && (
                 <a
@@ -1474,6 +1497,27 @@ export default function ProviderDetailPage() {
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
           <span className="material-symbols-outlined text-[16px] text-yellow-500 mt-0.5 shrink-0">warning</span>
           <p className="text-xs text-red-600 dark:text-yellow-400 leading-relaxed">{providerInfo.deprecationNotice}</p>
+        </div>
+      )}
+
+      {providerInfo.statusNotice && !providerInfo.systemDisabled && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[16px] text-red-500">block</span>
+          <p className="text-xs leading-relaxed text-red-600 dark:text-red-400">{providerInfo.statusNotice}</p>
+        </div>
+      )}
+      {providerActionsDisabled && (
+        <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+          providerInfo?.systemDisabled
+            ? "border border-red-500/30 bg-red-500/10"
+            : "border border-amber-500/30 bg-amber-500/10"
+        }`}>
+          <span className={`material-symbols-outlined mt-0.5 shrink-0 text-[16px] ${
+            providerInfo?.systemDisabled ? "text-red-500" : "text-amber-500"
+          }`}>block</span>
+          <p className={`text-xs leading-relaxed ${
+            providerInfo?.systemDisabled ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-300"
+          }`}>{providerDisabledMessage}</p>
         </div>
       )}
 
@@ -1613,7 +1657,7 @@ export default function ProviderDetailPage() {
                   variant="secondary"
                   icon="lan"
                   onClick={openBulkProxyModal}
-                  disabled={selectedConnections.length === 0}
+                  disabled={providerActionsDisabled || selectedConnections.length === 0}
                 >
                   Apply Proxy
                 </Button>
@@ -1625,7 +1669,7 @@ export default function ProviderDetailPage() {
                     variant="secondary"
                     icon="sync"
                     onClick={handleRunOneByOneTest}
-                    disabled={oneByOneRunning}
+                    disabled={providerActionsDisabled || oneByOneRunning}
                   >
                     {oneByOneRunning ? "Testing Connection One-by-One..." : "Test Connection One-by-One"}
                   </Button>
@@ -1663,6 +1707,7 @@ export default function ProviderDetailPage() {
                 <Toggle
                   checked={providerStrategy === "round-robin"}
                   onChange={handleRoundRobinToggle}
+                  disabled={providerActionsDisabled}
                 />
                 {providerStrategy === "round-robin" && (
                   <div className="flex items-center gap-1.5">
@@ -1672,6 +1717,7 @@ export default function ProviderDetailPage() {
                       min={1}
                       value={providerStickyLimit}
                       onChange={(e) => handleStickyLimitChange(e.target.value)}
+                      disabled={providerActionsDisabled}
                       placeholder="1"
                       className="w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
                     />
@@ -1755,22 +1801,22 @@ export default function ProviderDetailPage() {
                 <div className="flex gap-2">
                   {hasDualAuthModes ? (
                     <>
-                      <Button size="sm" icon="lock" variant="secondary" onClick={triggerOAuthConnection}>
+                      <Button size="sm" icon="lock" variant="secondary" onClick={triggerOAuthConnection} disabled={providerActionsDisabled}>
                         {oauthConnectionLabel}
                       </Button>
-                      <Button size="sm" icon="key" onClick={triggerApiKeyConnection}>
+                      <Button size="sm" icon="key" onClick={triggerApiKeyConnection} disabled={providerActionsDisabled}>
                         {apiKeyConnectionLabel}
                       </Button>
                     </>
                   ) : (
                     <>
                       {!isCompatible && providerId === "iflow" && (
-                        <Button size="sm" icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)}>
+                        <Button size="sm" icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)} disabled={providerActionsDisabled}>
                           Cookie
                         </Button>
                       )}
                       {providerId === "codex" && (
-                        <Button size="sm" icon="playlist_add" variant="secondary" onClick={() => setShowBulkImportCodex(true)}>
+                        <Button size="sm" icon="playlist_add" variant="secondary" onClick={() => setShowBulkImportCodex(true)} disabled={providerActionsDisabled}>
                           {translate("Bulk Add")}
                         </Button>
                       )}
@@ -1778,6 +1824,7 @@ export default function ProviderDetailPage() {
                         size="sm"
                         icon={usesAutomationLogin ? "automation" : "add"}
                         onClick={triggerAddConnection}
+                        disabled={providerActionsDisabled}
                       >
                       {usesAutomationLogin ? "Open Automation" : (isCompatible ? "Add API Key" : (providerId === "iflow" ? "OAuth" : "Add Connection"))}
                       </Button>
@@ -1798,6 +1845,7 @@ export default function ProviderDetailPage() {
                       size="sm"
                       icon="monitoring"
                       variant="secondary"
+                      disabled={providerActionsDisabled}
                       onClick={() => router.push("/dashboard/automation?provider=kiro")}
                     >
                       Resume Bulk Progress
@@ -1852,6 +1900,7 @@ export default function ProviderDetailPage() {
                       size="sm"
                       icon="monitoring"
                       variant="secondary"
+                      disabled={providerActionsDisabled}
                       onClick={() => router.push("/dashboard/automation?provider=kiro")}
                     >
                       Resume Bulk Progress
@@ -1927,6 +1976,7 @@ export default function ProviderDetailPage() {
                       icon="cookie"
                       variant="secondary"
                       onClick={() => setShowIFlowCookieModal(true)}
+                      disabled={providerActionsDisabled}
                       title="Add connection using browser cookie"
                       className="w-full sm:w-auto"
                     >
@@ -1939,6 +1989,7 @@ export default function ProviderDetailPage() {
                       icon={connections.length > 0 ? "refresh" : "cookie"}
                       variant={connections.some((c) => c.error || c.errorCode) ? "primary" : "secondary"}
                       onClick={() => setShowGeminiWebCookieModal(true)}
+                      disabled={providerActionsDisabled}
                       title={connections.length > 0
                         ? "Re-authenticate by pasting a fresh cURL from gemini.google.com"
                         : "Paste a Copy-as-cURL request from gemini.google.com to capture cookies"}
@@ -1953,6 +2004,7 @@ export default function ProviderDetailPage() {
                       icon="cookie"
                       variant="secondary"
                       onClick={openCodeBuddyQuotaCookieModal}
+                      disabled={providerActionsDisabled}
                       title="Attach CodeBuddy web cookie for quota tracking"
                       className="w-full sm:w-auto"
                     >
@@ -1965,6 +2017,7 @@ export default function ProviderDetailPage() {
                       icon="playlist_add"
                       variant="secondary"
                       onClick={() => setShowBulkImportCodex(true)}
+                      disabled={providerActionsDisabled}
                       title={translate("Bulk import codex accounts from JSON")}
                       className="w-full sm:w-auto"
                     >
@@ -1978,6 +2031,7 @@ export default function ProviderDetailPage() {
                         icon="lock"
                         variant="secondary"
                         onClick={triggerOAuthConnection}
+                        disabled={providerActionsDisabled}
                         className="w-full sm:w-auto"
                       >
                         {oauthConnectionLabel}
@@ -1986,6 +2040,7 @@ export default function ProviderDetailPage() {
                         size="sm"
                         icon="key"
                         onClick={triggerApiKeyConnection}
+                        disabled={providerActionsDisabled}
                         className="w-full sm:w-auto"
                       >
                         {apiKeyConnectionLabel}
@@ -1996,6 +2051,7 @@ export default function ProviderDetailPage() {
                       size="sm"
                       icon={usesAutomationLogin ? "automation" : "add"}
                       onClick={triggerAddConnection}
+                      disabled={providerActionsDisabled}
                       className="w-full sm:w-auto"
                     >
                       {usesAutomationLogin ? "Open Automation" : "Add"}
@@ -2047,7 +2103,7 @@ export default function ProviderDetailPage() {
       {/* Modals */}
       {providerId === "kiro" ? (
         <KiroOAuthWrapper
-          isOpen={showOAuthModal}
+          isOpen={showOAuthModal && !providerActionsDisabled}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
           onRefresh={fetchConnections}
@@ -2057,20 +2113,20 @@ export default function ProviderDetailPage() {
         />
       ) : providerId === "cursor" ? (
         <CursorAuthModal
-          isOpen={showOAuthModal}
+          isOpen={showOAuthModal && !providerActionsDisabled}
           onSuccess={handleOAuthSuccess}
           onClose={() => setShowOAuthModal(false)}
         />
       ) : providerId === "gitlab" ? (
         <GitLabAuthModal
-          isOpen={showOAuthModal}
+          isOpen={showOAuthModal && !providerActionsDisabled}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
           onClose={() => setShowOAuthModal(false)}
         />
       ) : (
         <OAuthModal
-          isOpen={showOAuthModal}
+          isOpen={showOAuthModal && !providerActionsDisabled}
           provider={providerId}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
@@ -2079,28 +2135,28 @@ export default function ProviderDetailPage() {
       )}
       {providerId === "iflow" && (
         <IFlowCookieModal
-          isOpen={showIFlowCookieModal}
+          isOpen={showIFlowCookieModal && !providerActionsDisabled}
           onSuccess={handleIFlowCookieSuccess}
           onClose={() => setShowIFlowCookieModal(false)}
         />
       )}
       {providerId === "gemini-web" && (
         <GeminiWebCookieModal
-          isOpen={showGeminiWebCookieModal}
+          isOpen={showGeminiWebCookieModal && !providerActionsDisabled}
           onSuccess={handleGeminiWebCookieSuccess}
           onClose={() => setShowGeminiWebCookieModal(false)}
         />
       )}
       {providerId === "codebuddy" && (
         <CodeBuddyQuotaCookieModal
-          isOpen={showCodeBuddyQuotaCookieModal}
+          isOpen={showCodeBuddyQuotaCookieModal && !providerActionsDisabled}
           connectionIds={codeBuddyQuotaCookieConnectionIds}
           onSuccess={handleCodeBuddyQuotaCookieSuccess}
           onClose={() => setShowCodeBuddyQuotaCookieModal(false)}
         />
       )}
       <AddApiKeyModal
-        isOpen={showAddApiKeyModal}
+        isOpen={showAddApiKeyModal && !providerActionsDisabled}
         provider={providerId}
         providerName={providerInfo.name}
         isCompatible={isCompatible}
@@ -2152,7 +2208,7 @@ export default function ProviderDetailPage() {
 
       {providerId === "codex" && (
         <BulkImportCodexModal
-          isOpen={showBulkImportCodex}
+          isOpen={showBulkImportCodex && !providerActionsDisabled}
           onClose={() => setShowBulkImportCodex(false)}
           onSuccess={fetchConnections}
         />

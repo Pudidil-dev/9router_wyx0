@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readFile, readdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * GET /api/oauth/kiro/auto-import
@@ -9,6 +10,7 @@ import { join } from "path";
  */
 export async function GET() {
   try {
+    await assertProviderEnabled("kiro");
     const cachePath = join(homedir(), ".aws/sso/cache");
 
     // Try to read cache directory
@@ -79,7 +81,7 @@ export async function GET() {
     console.log("Kiro auto-import error:", error);
     return NextResponse.json(
       { found: false, error: error.message },
-      { status: 500 }
+      { status: error.status || 500 }
     );
   }
 }

@@ -386,6 +386,7 @@ function buildCodeBuddyTestHeaders(connection) {
     "X-IDE-Name": "CLI",
     "X-IDE-Version": "2.105.2",
     "X-Private-Data": "false",
+    "X-Product": "SaaS",
   };
 }
 

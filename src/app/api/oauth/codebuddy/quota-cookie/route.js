@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProviderConnectionById, updateProviderConnection } from "@/models";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 const CODEBUDDY_USAGE_URL = "https://www.codebuddy.ai/billing/meter/get-user-resource";
 const CODEBUDDY_PACKAGE_CODES = [
@@ -83,6 +84,7 @@ async function probeCodeBuddyQuotaCookie(cookie) {
 
 export async function POST(request) {
   try {
+    await assertProviderEnabled("codebuddy");
     const { cookie, connectionIds } = await request.json();
     const normalizedCookie = normalizeCookie(cookie);
     const ids = Array.isArray(connectionIds)
@@ -128,6 +130,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("CodeBuddy quota cookie error:", error);
-    return NextResponse.json({ error: error.message || "Failed to save CodeBuddy quota cookie" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Failed to save CodeBuddy quota cookie" }, { status: error.status || 500 });
   }
 }

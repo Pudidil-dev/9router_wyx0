@@ -203,7 +203,9 @@ export function startCodexProxy(appPort) {
           // Lazy import to avoid circular deps
           const { exchangeTokens } = await import("../providers.js");
           const { createProviderConnection } = await import("@/models");
+          const { assertProviderEnabled } = await import("@/lib/providerDisabled");
 
+          await assertProviderEnabled("codex");
           const tokenData = await exchangeTokens(
             "codex",
             code,
@@ -345,7 +347,9 @@ export function startXaiProxy(appPort) {
 
           const { exchangeTokens } = await import("../providers.js");
           const { createProviderConnection } = await import("@/models");
+          const { assertProviderEnabled } = await import("@/lib/providerDisabled");
 
+          await assertProviderEnabled("xai");
           const tokenData = await exchangeTokens(
             "xai",
             code,

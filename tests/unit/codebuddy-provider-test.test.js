@@ -4,6 +4,7 @@ const getProviderConnectionById = vi.fn();
 const updateProviderConnection = vi.fn();
 const resolveConnectionProxyConfig = vi.fn();
 const testProxyUrl = vi.fn();
+let fetchMock;
 
 vi.mock("@/lib/localDb", () => ({
   getProviderConnectionById,
@@ -21,7 +22,8 @@ vi.mock("@/lib/network/proxyTest", () => ({
 describe("CodeBuddy provider test support", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.fetch = vi.fn();
+    fetchMock = vi.fn();
+    global.fetch = fetchMock;
     resolveConnectionProxyConfig.mockResolvedValue({
       connectionProxyEnabled: false,
       connectionProxyUrl: "",
@@ -42,7 +44,7 @@ describe("CodeBuddy provider test support", () => {
 
   it("treats a successful CodeBuddy model probe as a valid connection", async () => {
     mockCodeBuddyConnection();
-    global.fetch.mockResolvedValue({
+    fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({}),
@@ -52,7 +54,7 @@ describe("CodeBuddy provider test support", () => {
     const result = await testSingleConnection("cb-1");
 
     expect(result.valid).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://www.codebuddy.ai/v2/chat/completions",
       expect.objectContaining({
         method: "POST",
@@ -63,7 +65,7 @@ describe("CodeBuddy provider test support", () => {
       }),
     );
 
-    const requestOptions = global.fetch.mock.calls[0][1];
+    const requestOptions = fetchMock.mock.calls[0][1];
     expect(JSON.parse(requestOptions.body)).toEqual(expect.objectContaining({
       model: "default-model",
       stream: false,
@@ -78,7 +80,7 @@ describe("CodeBuddy provider test support", () => {
 
   it("treats non-auth CodeBuddy failures like 429 as still supported", async () => {
     mockCodeBuddyConnection();
-    global.fetch.mockResolvedValue({
+    fetchMock.mockResolvedValue({
       ok: false,
       status: 429,
       json: async () => ({}),
@@ -96,7 +98,7 @@ describe("CodeBuddy provider test support", () => {
 
   it("still marks 401 CodeBuddy responses as invalid credentials", async () => {
     mockCodeBuddyConnection();
-    global.fetch.mockResolvedValue({
+    fetchMock.mockResolvedValue({
       ok: false,
       status: 401,
       json: async () => ({}),

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { KiroService } from "@/lib/oauth/services/kiro";
+import { assertProviderEnabled } from "@/lib/providerDisabled";
 
 /**
  * GET /api/oauth/kiro/social-authorize
@@ -8,6 +9,7 @@ import { KiroService } from "@/lib/oauth/services/kiro";
  */
 export async function GET(request) {
   try {
+    await assertProviderEnabled("kiro");
     const { searchParams } = new URL(request.url);
     const provider = searchParams.get("provider"); // "google" or "github"
 
@@ -22,6 +24,6 @@ export async function GET(request) {
     return NextResponse.json(kiroService.createSocialAuthorization(provider));
   } catch (error) {
     console.log("Kiro social authorize error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }

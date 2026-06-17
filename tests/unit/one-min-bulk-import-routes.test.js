@@ -4,6 +4,7 @@ const managerMock = {
   startJob: vi.fn(),
   cancelJob: vi.fn(),
 };
+const assertProviderEnabled = vi.fn();
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -30,6 +31,10 @@ vi.mock("@/lib/oauth/services/oneMinBulkImportManager", () => ({
     });
     return { parsed, invalidLines };
   }),
+}));
+
+vi.mock("@/lib/providerDisabled", () => ({
+  assertProviderEnabled,
 }));
 
 describe("1min AI bulk import routes", () => {
@@ -77,6 +82,23 @@ describe("1min AI bulk import routes", () => {
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("Invalid account format");
     expect(response.body.invalidLines).toEqual([1]);
+  });
+
+  it("returns 409 when 1min AI is disabled", async () => {
+    const error = new Error("1min AI is disabled. Re-enable it from the Providers tab to use this feature.");
+    error.status = 409;
+    assertProviderEnabled.mockRejectedValueOnce(error);
+
+    const { POST } = await import("../../src/app/api/oauth/1min-ai/bulk-import/route.js");
+    const response = await POST({
+      json: async () => ({
+        accounts: ["user@example.com|secret"],
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("disabled");
+    expect(managerMock.startJob).not.toHaveBeenCalled();
   });
 
   it("cancels a known job", async () => {

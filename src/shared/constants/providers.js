@@ -25,6 +25,8 @@ function buildProviderEntry(r) {
     ...(r.hidden ? { hidden: true } : {}),
     ...mediaFields,
     ...(r.priority !== undefined ? { priority: r.priority } : {}),
+    ...(r.defaultActive === false ? { defaultActive: false } : {}),
+    ...(r.systemDisabled === true ? { systemDisabled: true } : {}),
     ...(r.hasFree ? { hasFree: true } : {}),
     ...(r.thinkingConfig ? { thinkingConfig: r.thinkingConfig } : {}),
     ...(r.regions ? { regions: r.regions, defaultRegion: r.defaultRegion } : {}),
