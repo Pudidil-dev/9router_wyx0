@@ -199,6 +199,8 @@ export default function KiroAuthModal({
   const [browserChoice, setBrowserChoice] = useState(DEFAULT_AUTOMATION_BROWSER);
   const [bulkResult, setBulkResult] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyRegion, setApiKeyRegion] = useState("us-east-1");
   const [error, setError] = useState(null);
   const [jobRestoreNotice, setJobRestoreNotice] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -660,6 +662,40 @@ export default function KiroAuthModal({
     onMethodSelect("idc", { startUrl: idcStartUrl.trim(), region: idcRegion });
   };
 
+  const handleApiKeyImport = async () => {
+    if (!apiKey.trim()) {
+      setError("Please enter an API key");
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/oauth/kiro/api-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: apiKey.trim(),
+          region: apiKeyRegion.trim() || "us-east-1",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Import failed");
+      }
+
+      // Success - notify parent to refresh connections
+      onMethodSelect("api-key");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleSocialLogin = (provider) => {
     onMethodSelect("social", { provider });
   };
@@ -709,6 +745,23 @@ export default function KiroAuthModal({
               </div>
             </button>
 
+            {/* AWS API Key */}
+            <button
+              onClick={() => handleMethodSelect("api-key")}
+              className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-primary mt-0.5">key</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold mb-1">API Key</h3>
+                  <p className="text-sm text-text-muted">
+                    Use a long-lived Kiro/CodeWhisperer API key (headless auth).
+                  </p>
+                </div>
+              </div>
+            </button>
+
+            {/* Google Social Login - HIDDEN */}
             <button
               onClick={() => handleMethodSelect("social-google")}
               className="hidden w-full rounded-lg border border-border p-4 text-left transition-colors hover:bg-sidebar"
@@ -801,6 +854,64 @@ export default function KiroAuthModal({
           </div>
         )}
 
+        {/* API Key */}
+        {selectedMethod === "api-key" && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex gap-2">
+                <span className="material-symbols-outlined text-blue-600 dark:text-blue-400">info</span>
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  Paste a long-lived Kiro/CodeWhisperer API key. It is validated
+                  against AWS and stored directly as a bearer credential (no refresh).
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                API Key <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Paste your Kiro API key..."
+                className="font-mono text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                AWS Region
+              </label>
+              <Input
+                value={apiKeyRegion}
+                onChange={(e) => setApiKeyRegion(e.target.value)}
+                placeholder="us-east-1"
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-text-muted mt-1">
+                AWS region for the key (default: us-east-1)
+              </p>
+            </div>
+
+            {error && (
+              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-800">
+                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button onClick={handleApiKeyImport} fullWidth disabled={importing || !apiKey.trim()}>
+                {importing ? "Validating..." : "Add API Key"}
+              </Button>
+              <Button onClick={handleBack} variant="ghost" fullWidth>
+                Back
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Social Login Info (Google) */}
         {effectiveSelectedMethod === "social-google" && (
           <div className="space-y-4">
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">

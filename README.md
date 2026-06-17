@@ -4,7 +4,7 @@ WYx0 fork of 9Router focused on provider automation, multi-account workflows, an
 
 This repository is forked from [decolua/9router](https://github.com/decolua/9router). The upstream project remains the base AI router. This fork documents and ships the WYx0 changes on top: Kiro automation, CodeBuddy automation, quota tracker upgrades, and small dashboard quality-of-life updates.
 
-This branch is synced with upstream 9Router `v0.4.80` while preserving WYx0 automation.
+This branch is synced with upstream 9Router `v0.5.2` while preserving WYx0 automation.
 
 ## Focus
 
@@ -17,18 +17,15 @@ This branch is synced with upstream 9Router `v0.4.80` while preserving WYx0 auto
 - Provider UX polish: refreshed provider icons, provider icon fallback, connection status filtering, and related dashboard updates.
 - Safer provider workflows: token refresh handling, account fallback, CodeBuddy tiny-stream retry, request detail compaction, and focused tests around the new automation paths.
 
-## Upstream v0.4.80 Included
+## Upstream v0.5.2 Included
 
-This fork includes upstream 9Router v0.4.80 updates, including:
+This fork includes upstream 9Router v0.5.2 updates while retaining WYx0-specific behavior, including:
 
-- Vercel AI Gateway embeddings, images, and credit usage.
-- MiMo Free no-auth provider.
-- Vertex ADC `authorized_user` credential support.
-- Cowork Claude preset-only stdio MCP support.
-- Codex JSON bulk account import.
-- Kiro runtime endpoint, profile ARN auto-resolution, and multi-endpoint failover fixes.
-- Security/auth hardening: DB export/import re-auth, SSRF guard for web fetch, real client IP rate-limiting, and remote default-password guard.
-- Provider/translator fixes for Cerebras, Mistral, SiliconFlow, Gemini, Claude, Anthropic-compatible gateways, GitHub Copilot, Tunnel, CommandCode, and Qoder.
+- Combo Fusion and capacity auto-switch improvements.
+- Kiro API-key/headless auth support.
+- Claude quota auto-ping and 429 throttling updates.
+- Upstream OpenSSE provider registry refactor, with WYx0 providers re-added to the registry.
+- Upstream provider, model, translator, CLI, runtime, and dashboard fixes from the v0.5.2 release line.
 
 ## What Changed In This Fork
 
@@ -149,7 +146,7 @@ This fork's current PR scope is intentionally centered on WYx0 changes:
 - Preserve Gemini Web cookie onboarding and provider branding.
 - Preserve CodeBuddy quota usage support.
 - Preserve quota tracker pagination and bulk/single view behavior.
-- Sync upstream 9Router v0.4.80 fixes/features while keeping fork metadata and packaging.
+- Sync upstream 9Router v0.5.2 fixes/features while keeping fork metadata and packaging.
 
 ## Upstream Credit
 

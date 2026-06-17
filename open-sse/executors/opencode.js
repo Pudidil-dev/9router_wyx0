@@ -2,7 +2,8 @@ import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 
-const DEFAULT_BASE = "https://opencode.ai/zen/v1/chat/completions";
+// Models that use /zen/v1/messages (claude format)
+const MESSAGES_MODELS = new Set();
 
 export class OpenCodeExecutor extends BaseExecutor {
   constructor() {
@@ -13,18 +14,19 @@ export class OpenCodeExecutor extends BaseExecutor {
     return injectReasoningContent({ provider: this.provider, model, body });
   }
 
-  buildUrl(model, stream, urlIndex = 0, credentials = null) {
-    return credentials?.providerSpecificData?.baseUrl || DEFAULT_BASE;
+  buildUrl(model) {
+    const base = this.config.baseUrl;
+    return MESSAGES_MODELS.has(model)
+      ? `${base}/zen/v1/messages`
+      : `${base}/zen/v1/chat/completions`;
   }
 
-  buildHeaders(credentials, stream = true) {
-    const key = credentials?.apiKey || credentials?.accessToken;
-    const headers = {
+  buildHeaders() {
+    return {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${key}`,
+      "Authorization": "Bearer public",
       "x-opencode-client": "desktop",
+      "Accept": "text/event-stream"
     };
-    if (stream) headers["Accept"] = "text/event-stream";
-    return headers;
   }
 }

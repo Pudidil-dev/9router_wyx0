@@ -1,7 +1,8 @@
-import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, computeRetryDelay, FETCH_CONNECT_TIMEOUT_MS, FETCH_REQUEST_TIMEOUT_MS } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { shouldRefreshCredentials } from "../services/oauthCredentialManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
+import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE } from "../providers/shared.js";
 
 /**
  * BaseExecutor - Base class for provider executors
@@ -27,13 +28,13 @@ export class BaseExecutor {
 
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
     if (this.provider?.startsWith?.("openai-compatible-")) {
-      const baseUrl = credentials?.providerSpecificData?.baseUrl || "https://api.openai.com/v1";
+      const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
       const path = this.provider.includes("responses") ? "/responses" : "/chat/completions";
       return `${normalized}${path}`;
     }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
-      const baseUrl = credentials?.providerSpecificData?.baseUrl || "https://api.anthropic.com/v1";
+      const baseUrl = credentials?.providerSpecificData?.baseUrl || ANTHROPIC_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
       return `${normalized}/messages`;
     }
@@ -55,7 +56,7 @@ export class BaseExecutor {
         headers["Authorization"] = `Bearer ${credentials.accessToken}`;
       }
       if (!headers["anthropic-version"]) {
-        headers["anthropic-version"] = "2023-06-01";
+        headers["anthropic-version"] = ANTHROPIC_API_VERSION;
       }
     } else {
       // Standard Bearer token auth for other providers
@@ -76,11 +77,6 @@ export class BaseExecutor {
   // Override in subclass for provider-specific transformations
   transformRequest(model, body, stream, credentials) {
     return body;
-  }
-
-  // Override in subclass for providers that need encoded/binary request bodies.
-  prepareRequestBody(transformedBody, headers) {
-    return JSON.stringify(transformedBody);
   }
 
   shouldRetry(status, urlIndex) {
@@ -110,13 +106,20 @@ export class BaseExecutor {
     const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...this.config.retry };
 
     // Schedule retry via retryConfig[statusKey]. Returns true when caller should `urlIndex--; continue`
-    const tryRetry = async (urlIndex, statusKey, reason) => {
-      const resolved = resolveRetryEntry(retryConfig[statusKey]);
-      if (resolved.attempts <= 0 || retryAttemptsByUrl[urlIndex] >= resolved.attempts) return false;
+    // response (optional) lets a subclass hook compute a dynamic delay (e.g. antigravity Retry-After).
+    const tryRetry = async (urlIndex, statusKey, reason, response = null) => {
+      const { attempts, delayMs } = resolveRetryEntry(retryConfig[statusKey]);
+      if (attempts <= 0 || retryAttemptsByUrl[urlIndex] >= attempts) return false;
+      // Hook: subclass may derive delay from the response (headers/body). null → skip retry, use fallback.
+      let waitMs = delayMs;
+      if (response && this.computeRetryDelay) {
+        const dynamic = await this.computeRetryDelay(response, retryAttemptsByUrl[urlIndex] + 1, delayMs);
+        if (dynamic === false) return false; // hook vetoes retry (e.g. Retry-After too long)
+        if (dynamic != null) waitMs = dynamic;
+      }
       retryAttemptsByUrl[urlIndex]++;
-      const delayMs = computeRetryDelay(resolved, retryAttemptsByUrl[urlIndex]);
-      log?.debug?.("RETRY", `${reason} retry ${retryAttemptsByUrl[urlIndex]}/${resolved.attempts} after ${(delayMs / 1000).toFixed(1)}s`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      log?.debug?.("RETRY", `${reason} retry ${retryAttemptsByUrl[urlIndex]}/${attempts} after ${waitMs / 1000}s`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
       return true;
     };
 
@@ -127,45 +130,28 @@ export class BaseExecutor {
 
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 
-      // Two-tier timeout:
-      //   - connectTimeoutMs: upper bound on time-to-first-byte (connect + upload + first response chunk)
-      //   - requestTimeoutMs: hard ceiling on the entire pre-stream phase, independent of TTFB
-      // For large payloads (long context, images) routed through proxies, upload itself can
-      // exceed the legacy 60s "connect" timer — so we use a much larger ceiling here and let
-      // the stream-stall watchdog handle the streaming phase separately.
+      // Abort if upstream doesn't return response headers within connection timeout
       const connectCtrl = new AbortController();
-      const requestCtrl = new AbortController();
-      const connectTimeoutMs = this.config?.connectTimeoutMs || this.config?.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
-      const requestTimeoutMs = this.config?.requestTimeoutMs || FETCH_REQUEST_TIMEOUT_MS;
-      const connectTimer = setTimeout(() => connectCtrl.abort(new Error("fetch connect timeout")), connectTimeoutMs);
-      const requestTimer = setTimeout(() => requestCtrl.abort(new Error("fetch request timeout")), requestTimeoutMs);
-      const signals = [connectCtrl.signal, requestCtrl.signal];
-      if (signal) signals.push(signal);
-      const mergedSignal = AbortSignal.any(signals);
+      const timeoutMs = this.config?.timeoutMs || FETCH_CONNECT_TIMEOUT_MS;
+      const connectTimer = setTimeout(() => connectCtrl.abort(new Error("fetch connect timeout")), timeoutMs);
+      const mergedSignal = signal ? AbortSignal.any([signal, connectCtrl.signal]) : connectCtrl.signal;
 
       try {
-        const requestBody = this.prepareRequestBody(transformedBody, headers);
-        const requestBodySize = typeof requestBody === "string"
-          ? requestBody.length
-          : requestBody?.byteLength ?? requestBody?.length ?? "?";
-        const sizeKB = typeof requestBodySize === "number" ? Math.round(requestBodySize / 1024) : "?";
+        const bodyStr = JSON.stringify(transformedBody);
         const fetchT0 = Date.now();
-        dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${requestBodySize}B (${sizeKB}KB) | connectTimeout=${connectTimeoutMs}ms requestTimeout=${requestTimeoutMs}ms`);
+        dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
         const response = await proxyAwareFetch(url, {
           method: "POST",
           headers,
-          body: requestBody,
+          body: bodyStr,
           signal: mergedSignal
         }, proxyOptions);
-        // Got the response object — connect+upload+TTFB phase is done.
-        // Clear both timers so they don't fire during body streaming.
         clearTimeout(connectTimer);
-        clearTimeout(requestTimer);
         const ct = response.headers?.get?.("content-type") || "";
         const cl = response.headers?.get?.("content-length") || "?";
         dbg("FETCH", `${this.provider.toUpperCase()} ← ${response.status} | ttft=${Date.now() - fetchT0}ms | ct=${ct} | cl=${cl}`);
 
-        if (await tryRetry(urlIndex, response.status, `status ${response.status}`)) { urlIndex--; continue; }
+        if (await tryRetry(urlIndex, response.status, `status ${response.status}`, response)) { urlIndex--; continue; }
 
         if (this.shouldRetry(response.status, urlIndex)) {
           log?.debug?.("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);
@@ -176,17 +162,13 @@ export class BaseExecutor {
         return { response, url, headers, transformedBody };
       } catch (error) {
         clearTimeout(connectTimer);
-        clearTimeout(requestTimer);
         lastError = error;
         const isConnectTimeout = connectCtrl.signal.aborted && error.name === "AbortError";
-        const isRequestTimeout = requestCtrl.signal.aborted && error.name === "AbortError";
-        const timeoutTag = isConnectTimeout ? " (connect timeout)" : isRequestTimeout ? " (request timeout)" : "";
-        dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${timeoutTag}`);
-        // Internal timeouts (connect/request) are retryable — convert to network error, don't propagate AbortError.
-        // External user aborts still bubble up.
-        if (error.name === "AbortError" && !isConnectTimeout && !isRequestTimeout) throw error;
+        dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${isConnectTimeout ? " (connect timeout)" : ""}`);
+        // Connect timeout is internal — convert to retryable network error, don't propagate AbortError
+        if (error.name === "AbortError" && !isConnectTimeout) throw error;
 
-        // Map network/fetch exceptions (and our internal timeouts) to 502 retry config
+        // Map network/fetch exceptions to 502 retry config
         if (await tryRetry(urlIndex, HTTP_STATUS.BAD_GATEWAY, `network "${error.message}"`)) { urlIndex--; continue; }
 
         if (urlIndex + 1 < fallbackCount) {

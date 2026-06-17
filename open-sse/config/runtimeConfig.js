@@ -31,18 +31,23 @@ export const MEMORY_CONFIG = {
   proxyDispatchersMaxSize: 20,
 };
 
-// Stream stall timeout: abort if no chunk received within this duration
-export const STREAM_STALL_TIMEOUT_MS = 60 * 1000;
+// Parse a positive integer env override, falling back to a default.
+function envMs(name, def) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return def;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : def;
+}
 
-// Fetch connect timeout: abort if upstream doesn't return response headers within this duration.
-// Used as a safety net for the connect+upload+first-byte phase. Larger payloads
-// (long context, pasted images) routed through proxies need more headroom — this
-// is now treated as the upper bound on time-to-first-byte, not a per-phase timer.
-export const FETCH_CONNECT_TIMEOUT_MS = 180 * 1000; // 3 minutes
+// Inter-chunk stall timeout (once tokens are flowing). Generous headroom so
+// slow reasoning models aren't aborted mid-stream. Env: STREAM_STALL_TIMEOUT_MS.
+export const STREAM_STALL_TIMEOUT_MS = envMs("STREAM_STALL_TIMEOUT_MS", 360 * 1000);
 
-// Hard upper bound on the entire request including upload (independent of TTFB).
-// Aborts if the request hasn't even produced a Response object after this duration.
-export const FETCH_REQUEST_TIMEOUT_MS = 300 * 1000; // 5 minutes
+// Time-to-first-token timeout (prompt prefill). Env: STREAM_FIRST_CHUNK_TIMEOUT_MS.
+export const STREAM_FIRST_CHUNK_TIMEOUT_MS = envMs("STREAM_FIRST_CHUNK_TIMEOUT_MS", 200 * 1000);
+
+// Fetch connect timeout: abort if upstream doesn't return response headers within this duration
+export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
 
 // Default token limits
 export const DEFAULT_MAX_TOKENS = 64000;
@@ -54,43 +59,23 @@ export const RETRY_CONFIG = {
   delayMs: 2000
 };
 
-// Default retry config by status code: { attempts, delayMs, backoff?, jitter?, maxDelayMs? }
+// Default retry config by status code: { attempts, delayMs }
 // Backward compat: if value is a number, treated as attempts with RETRY_CONFIG.delayMs
-//   - backoff: "fixed" (default) | "exponential"
-//   - jitter:  when true, adds random([0, delay/2]) to each delay
-//   - maxDelayMs: hard cap on computed delay (default 30s)
 export const DEFAULT_RETRY_CONFIG = {
   429: { attempts: 0, delayMs: 0 },
-  502: { attempts: 4, delayMs: 2000, backoff: "exponential", jitter: true, maxDelayMs: 30000 },
-  503: { attempts: 4, delayMs: 2000, backoff: "exponential", jitter: true, maxDelayMs: 30000 },
-  504: { attempts: 3, delayMs: 3000, backoff: "exponential", jitter: true, maxDelayMs: 30000 }
+  502: { attempts: 3, delayMs: 3000 },
+  503: { attempts: 3, delayMs: 2000 },
+  504: { attempts: 2, delayMs: 3000 }
 };
 
-// Normalize a retry entry to { attempts, delayMs, backoff, jitter, maxDelayMs }
+// Normalize a retry entry to { attempts, delayMs }
 export function resolveRetryEntry(entry) {
-  if (entry == null) return { attempts: 0, delayMs: RETRY_CONFIG.delayMs, backoff: "fixed", jitter: false, maxDelayMs: 30000 };
-  if (typeof entry === "number") return { attempts: entry, delayMs: RETRY_CONFIG.delayMs, backoff: "fixed", jitter: false, maxDelayMs: 30000 };
+  if (entry == null) return { attempts: 0, delayMs: RETRY_CONFIG.delayMs };
+  if (typeof entry === "number") return { attempts: entry, delayMs: RETRY_CONFIG.delayMs };
   return {
     attempts: entry.attempts || 0,
-    delayMs: entry.delayMs != null ? entry.delayMs : RETRY_CONFIG.delayMs,
-    backoff: entry.backoff || "fixed",
-    jitter: entry.jitter === true,
-    maxDelayMs: entry.maxDelayMs != null ? entry.maxDelayMs : 30000
+    delayMs: entry.delayMs != null ? entry.delayMs : RETRY_CONFIG.delayMs
   };
-}
-
-// Compute the actual delay for a given attempt (1-indexed) using the resolved retry entry
-export function computeRetryDelay(resolvedEntry, attemptNumber) {
-  const { delayMs, backoff, jitter, maxDelayMs } = resolvedEntry;
-  let computed = delayMs;
-  if (backoff === "exponential") {
-    // attempt 1 → delayMs, 2 → 2x, 3 → 4x, 4 → 8x ...
-    computed = delayMs * Math.pow(2, Math.max(0, attemptNumber - 1));
-  }
-  if (jitter) {
-    computed += Math.random() * (computed / 2);
-  }
-  return Math.min(Math.round(computed), maxDelayMs || 30000);
 }
 
 // Requests containing these texts will bypass provider

@@ -1,25 +1,37 @@
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
+import { ANTHROPIC_API_VERSION } from "../providers/shared.js";
 
-const DEFAULT_BASE = "https://opencode.ai/zen/go/v1/messages";
+// Models that use /zen/go/v1/messages (Anthropic/Claude format + x-api-key auth)
+const CLAUDE_FORMAT_MODELS = new Set(["minimax-m2.5", "minimax-m2.7"]);
+
+const BASE = "https://opencode.ai/zen/go/v1";
 
 export class OpenCodeGoExecutor extends BaseExecutor {
   constructor() {
     super("opencode-go", PROVIDERS["opencode-go"]);
   }
 
-  buildUrl(model, stream, urlIndex = 0, credentials = null) {
-    return credentials?.providerSpecificData?.baseUrl || DEFAULT_BASE;
+  // buildUrl runs before buildHeaders in BaseExecutor.execute, cache model here
+  buildUrl(model) {
+    this._lastModel = model;
+    return CLAUDE_FORMAT_MODELS.has(model)
+      ? `${BASE}/messages`
+      : `${BASE}/chat/completions`;
   }
 
   buildHeaders(credentials, stream = true) {
     const key = credentials?.apiKey || credentials?.accessToken;
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${key}`,
-      "anthropic-version": "2023-06-01",
-    };
+    const headers = { "Content-Type": "application/json" };
+
+    if (CLAUDE_FORMAT_MODELS.has(this._lastModel)) {
+      headers["x-api-key"] = key;
+      headers["anthropic-version"] = ANTHROPIC_API_VERSION;
+    } else {
+      headers["Authorization"] = `Bearer ${key}`;
+    }
+
     if (stream) headers["Accept"] = "text/event-stream";
     return headers;
   }

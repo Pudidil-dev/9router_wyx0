@@ -92,3 +92,6 @@ scrapper-proxy/
 scripts/discord-announcement.html
 .github/workflows/discord-changelog.yml
 chat.txt
+
+# Refactor backup reference (do not bundle/lint)
+open-sse.old/

@@ -1,0 +1,40 @@
+export default {
+  id: "gemini-web",
+  priority: 230,
+  alias: "gemini-web",
+  aliases: [
+    "gmw",
+  ],
+  uiAlias: "gmw",
+  display: {
+    name: "Gemini Web",
+    icon: "auto_awesome",
+    color: "#4285F4",
+    textIcon: "GW",
+    website: "https://gemini.google.com",
+    notice: {
+      text: "Use a burner Google account, not your primary. Free accounts work for Flash models; gemini-3.1-pro requires a Gemini Advanced subscription cookie or it silently routes to Flash.",
+      signupUrl: "https://gemini.google.com",
+    },
+    experimental: true,
+    experimentalNotice: "🧪 Reverse-engineered Gemini web protocol. Cookies usually last 1–4 weeks before needing a re-paste. Heavy automated use can flag the Google account within hours; light use lasts months. Always use a burner account.",
+  },
+  category: "webCookie",
+  authType: "cookie",
+  authHint: "Paste your full Cookie header from gemini.google.com (DevTools → Network → any request → Request Headers → Cookie). We extract the 6 needed cookies automatically.",
+  hasProviderSpecificData: true,
+  serviceKinds: ["llm"],
+  transport: {
+    baseUrl: "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate",
+    format: "gemini-web",
+    authType: "cookie",
+  },
+  models: [
+    { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
+    { id: "gemini-3.5-flash-thinking", name: "Gemini 3.5 Flash Thinking" },
+    { id: "gemini-3.5-flash-thinking-lite", name: "Gemini 3.5 Flash Thinking Lite" },
+    { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (requires Advanced subscription)" },
+    { id: "gemini-auto", name: "Gemini Auto" },
+    { id: "gemini-flash-lite", name: "Gemini Flash Lite" },
+  ],
+};
