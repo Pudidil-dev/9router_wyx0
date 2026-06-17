@@ -24,3 +24,9 @@ export const CAVEMAN_LEVELS = [
   { id: "wenyan", label: "文 Full", desc: "Maximum 文言文, 80-90% reduction", wenyan: true },
   { id: "wenyan-ultra", label: "文 Ultra", desc: "Extreme classical compression", wenyan: true },
 ];
+
+export const PONYTAIL_LEVELS = [
+  { id: "lite", label: "Lite", desc: "Prefer simple built-ins before custom code" },
+  { id: "full", label: "Full", desc: "Strong anti-bloat bias, keep smallest correct solution" },
+  { id: "ultra", label: "Ultra", desc: "Aggressively minimal, reject over-engineering early" },
+];
