@@ -16,7 +16,6 @@ export default {
     },
     deprecated: true,
     deprecationNotice: "RISK_NOTICE",
-    statusLabel: "KOID",
     statusNotice: "CodeBuddy chat routing is currently disabled for normal use. The upstream now rejects this integration with code 11140: request illegal.",
   },
   category: "free",
