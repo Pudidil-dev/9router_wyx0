@@ -122,7 +122,16 @@ function buildSummary(accounts) {
     success: accounts.filter((account) => account.status === "success").length,
     failed: getFailedCount(accounts),
     needs_manual: accounts.filter((account) => account.status === "needs_manual").length,
+    cancelled: accounts.filter((account) => account.status === "cancelled").length,
   };
+}
+
+function hasUnfinishedAccounts(accounts) {
+  return accounts.some((account) => (
+    account.status === "queued"
+    || account.status === "running"
+    || account.status === "needs_manual"
+  ));
 }
 
 function createLogEntry(step, message, level = "info") {
@@ -199,6 +208,18 @@ function buildPersistedSnapshot(job) {
   });
 }
 
+function normalizePersistedJobSnapshot(job) {
+  if (!job?.preview) return job || null;
+  const hasPreviewableAccount = (job.accounts || []).some((account) => (
+    account.status === "running" || account.status === "needs_manual"
+  ));
+  if (hasPreviewableAccount) return job;
+  return {
+    ...job,
+    preview: null,
+  };
+}
+
 function isRecentTerminalJob(job) {
   if (!job || ACTIVE_JOB_STATUSES.has(job.status)) return false;
   const finishedAtMs = job.finishedAt ? Date.parse(job.finishedAt) : NaN;
@@ -253,7 +274,7 @@ function cancelPersistedActiveJob(job) {
 }
 
 async function defaultBrowserLauncher(browser = DEFAULT_AUTOMATION_BROWSER) {
-  return await createAutomationBrowserLauncher(browser)();
+  return await createAutomationBrowserLauncher(browser, { headless: false })();
 }
 
 async function defaultSocialExchange(args) {
@@ -261,8 +282,47 @@ async function defaultSocialExchange(args) {
   return exchangeAndSaveKiroSocialConnection(args);
 }
 
+export const AUTOMATION_CONTEXT_OPTIONS = {
+  userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+  locale: "en-US",
+  viewport: {
+    width: 1365,
+    height: 768,
+  },
+};
+
+export const AUTOMATION_STEALTH_INIT_SCRIPT = `
+Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
+Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });
+window.chrome = window.chrome || { runtime: {} };
+window.chrome.runtime = window.chrome.runtime || {};
+
+const originalPermissionsQuery = window.navigator.permissions?.query?.bind(window.navigator.permissions);
+if (originalPermissionsQuery) {
+  window.navigator.permissions.query = (parameters) => (
+    parameters?.name === "notifications"
+      ? Promise.resolve({ state: Notification.permission })
+      : originalPermissionsQuery(parameters)
+  );
+}
+
+const patchWebGl = (prototype) => {
+  if (!prototype?.getParameter) return;
+  const originalGetParameter = prototype.getParameter;
+  prototype.getParameter = function getParameter(parameter) {
+    if (parameter === 37445) return "Intel Inc.";
+    if (parameter === 37446) return "Intel Iris OpenGL Engine";
+    return originalGetParameter.apply(this, arguments);
+  };
+};
+patchWebGl(window.WebGLRenderingContext?.prototype);
+patchWebGl(window.WebGL2RenderingContext?.prototype);
+`;
+
 export async function createFreshContext(browser) {
-  const context = await browser.newContext();
+  const context = await browser.newContext(AUTOMATION_CONTEXT_OPTIONS);
+  await context.addInitScript?.(AUTOMATION_STEALTH_INIT_SCRIPT).catch(() => null);
   const page = await context.newPage();
   return { context, page };
 }
@@ -391,12 +451,12 @@ export class KiroBulkImportManager {
   getJob(jobId) {
     const job = this.jobs.get(jobId);
     if (job) return sanitizeJob(job, { preview: job.lastPreview || null });
-    return readJsonFile(getJobFile(jobId, this.storageDir));
+    return normalizePersistedJobSnapshot(readJsonFile(getJobFile(jobId, this.storageDir)));
   }
 
   async getJobWithPreview(jobId) {
     const job = this.jobs.get(jobId);
-    if (!job) return readJsonFile(getJobFile(jobId, this.storageDir));
+    if (!job) return normalizePersistedJobSnapshot(readJsonFile(getJobFile(jobId, this.storageDir)));
     const preview = await this.capturePreview(job);
     job.lastPreview = preview || job.lastPreview || null;
     await this.persistJobSnapshot(job, { forcePreview: false });
@@ -523,6 +583,8 @@ export class KiroBulkImportManager {
         const preview = await this.capturePreview(job);
         if (preview) {
           job.lastPreview = preview;
+        } else {
+          job.lastPreview = null;
         }
         job.lastPreviewCapturedAt = Date.now();
       }
@@ -752,7 +814,7 @@ export class KiroBulkImportManager {
         await Promise.allSettled([...job.manualFollowups]);
       }
 
-      if (job.cancelRequested) {
+      if (job.cancelRequested && hasUnfinishedAccounts(job.accounts)) {
         job.status = "cancelled";
         job.accounts.forEach((account) => {
           if (account.status === "queued" || account.status === "running") {
@@ -810,6 +872,7 @@ export const __test__ = {
   parseKiroBulkAccounts,
   sanitizeJob,
   buildSummary,
+  hasUnfinishedAccounts,
   isRecentTerminalJob,
   buildLookupResponse,
 };
