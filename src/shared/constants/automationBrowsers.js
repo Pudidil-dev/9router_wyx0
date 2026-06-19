@@ -1,4 +1,5 @@
 export const AUTOMATION_BROWSER_CHROMIUM = "playwright-chromium";
+export const AUTOMATION_BROWSER_GOOGLE_CHROME = "google-chrome";
 export const AUTOMATION_BROWSER_CAMOFOX = "camofox";
 
 export const DEFAULT_AUTOMATION_BROWSER = AUTOMATION_BROWSER_CHROMIUM;
@@ -9,6 +10,12 @@ export const AUTOMATION_BROWSER_OPTIONS = [
     label: "Playwright Chromium",
     badge: "Recommended",
     description: "Uses the bundled Playwright Chromium automation.",
+  },
+  {
+    id: AUTOMATION_BROWSER_GOOGLE_CHROME,
+    label: "Google Chrome",
+    badge: "Recommended",
+    description: "Uses your installed Google Chrome browser for Google login compatibility.",
   },
   {
     id: AUTOMATION_BROWSER_CAMOFOX,

@@ -1,10 +1,23 @@
-import { AUTOMATION_BROWSER_CAMOFOX, AUTOMATION_BROWSER_CHROMIUM, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
+import {
+  AUTOMATION_BROWSER_CAMOFOX,
+  AUTOMATION_BROWSER_CHROMIUM,
+  AUTOMATION_BROWSER_GOOGLE_CHROME,
+  normalizeAutomationBrowser,
+} from "@/shared/constants/automationBrowsers";
 
-const CAMOFOX_UNAVAILABLE_MESSAGE = "Camofox browser support is not installed in this build. Switch to Playwright Chromium or install/configure Camofox support.";
+const CAMOFOX_UNAVAILABLE_MESSAGE = "Camofox browser support is not installed in this build. Switch to Playwright Chromium, Google Chrome, or install/configure Camofox support.";
 
 async function launchChromium({ headless = true } = {}) {
   const { chromium } = await import("playwright");
   return await chromium.launch({
+    headless,
+  });
+}
+
+async function launchGoogleChrome({ headless = true } = {}) {
+  const { chromium } = await import("playwright");
+  return await chromium.launch({
+    channel: "chrome",
     headless,
   });
 }
@@ -38,6 +51,9 @@ export function createAutomationBrowserLauncher(browser, options = {}) {
     if (normalized === AUTOMATION_BROWSER_CAMOFOX) {
       return await launchCamofox(launchOpts);
     }
+    if (normalized === AUTOMATION_BROWSER_GOOGLE_CHROME) {
+      return await launchGoogleChrome(launchOpts);
+    }
     return await launchChromium(launchOpts);
   };
 }
@@ -48,4 +64,9 @@ export function getAutomationBrowserUnavailableMessage(browser) {
     : null;
 }
 
-export { AUTOMATION_BROWSER_CAMOFOX, AUTOMATION_BROWSER_CHROMIUM, CAMOFOX_UNAVAILABLE_MESSAGE };
+export {
+  AUTOMATION_BROWSER_CAMOFOX,
+  AUTOMATION_BROWSER_CHROMIUM,
+  AUTOMATION_BROWSER_GOOGLE_CHROME,
+  CAMOFOX_UNAVAILABLE_MESSAGE,
+};
