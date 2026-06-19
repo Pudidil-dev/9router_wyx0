@@ -9,6 +9,9 @@
 import { describe, it, expect } from "vitest";
 import { openaiToKiroRequest } from "../../open-sse/translator/request/openai-to-kiro.js";
 
+const contentOf = (result) =>
+  result.conversationState.currentMessage.userInputMessage.content;
+
 describe("openaiToKiroRequest", () => {
   describe("basic message conversion", () => {
     it("should convert a simple text message", () => {
@@ -305,7 +308,7 @@ describe("openaiToKiroRequest", () => {
         }))
       ];
 
-      const result = buildKiroPayload("claude-sonnet-4.6", {
+      const result = openaiToKiroRequest("claude-sonnet-4.6", {
         messages: [{ role: "user", content: "Use tools if needed" }],
         tools
       }, true, {});
@@ -323,7 +326,7 @@ describe("openaiToKiroRequest", () => {
 
   describe("thinking exposure policy", () => {
     it("does not expose Kiro reasoning to clients by default", () => {
-      const result = buildKiroPayload("claude-sonnet-4.6-thinking", {
+      const result = openaiToKiroRequest("claude-sonnet-4.6-thinking", {
         messages: [{ role: "user", content: "Think carefully" }]
       }, true, {});
 
@@ -333,7 +336,7 @@ describe("openaiToKiroRequest", () => {
     });
 
     it("allows explicit opt-in for exposing Kiro reasoning", () => {
-      const result = buildKiroPayload("claude-sonnet-4.6-thinking", {
+      const result = openaiToKiroRequest("claude-sonnet-4.6-thinking", {
         metadata: { kiro_expose_reasoning: true },
         messages: [{ role: "user", content: "Think carefully" }]
       }, true, {});
@@ -344,7 +347,7 @@ describe("openaiToKiroRequest", () => {
     });
 
     it("lets an explicit disabled thinking config override model suffixes and reasoning_effort", () => {
-      const result = buildKiroPayload("claude-sonnet-4.6-thinking", {
+      const result = openaiToKiroRequest("claude-sonnet-4.6-thinking", {
         thinking: { type: "disabled" },
         reasoning_effort: "high",
         messages: [{ role: "user", content: "No thinking stream" }]
@@ -352,6 +355,85 @@ describe("openaiToKiroRequest", () => {
 
       expect(result._kiroThinkingEnabled).toBe(false);
       expect(result.conversationState.currentMessage.userInputMessage.content).not.toContain("<thinking_mode>");
+    });
+  });
+
+  describe("thinking budget", () => {
+    it("maps reasoning_effort low to max_thinking_length 1024", () => {
+      const body = {
+        reasoning_effort: "low",
+        messages: [{ role: "user", content: "Think lightly" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6", body, true, {});
+
+      expect(contentOf(result)).toContain("<max_thinking_length>1024</max_thinking_length>");
+    });
+
+    it("maps reasoning_effort high to max_thinking_length 24576", () => {
+      const body = {
+        reasoning_effort: "high",
+        messages: [{ role: "user", content: "Think deeply" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6", body, true, {});
+
+      expect(contentOf(result)).toContain("<max_thinking_length>24576</max_thinking_length>");
+    });
+
+    it("clamps reasoning_effort max to Kiro max_thinking_length 32000", () => {
+      const body = {
+        reasoning_effort: "max",
+        messages: [{ role: "user", content: "Think as much as possible" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6", body, true, {});
+
+      expect(contentOf(result)).toContain("<max_thinking_length>32000</max_thinking_length>");
+    });
+
+    it("clamps OpenAI Responses reasoning.effort xhigh to max_thinking_length 32000", () => {
+      const body = {
+        reasoning: { effort: "xhigh" },
+        messages: [{ role: "user", content: "Think extra deeply" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6", body, true, {});
+
+      expect(contentOf(result)).toContain("<max_thinking_length>32000</max_thinking_length>");
+    });
+
+    it("uses Claude thinking.budget_tokens as max_thinking_length", () => {
+      const body = {
+        thinking: { type: "enabled", budget_tokens: 4096 },
+        messages: [{ role: "user", content: "Use a fixed budget" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6", body, true, {});
+
+      expect(contentOf(result)).toContain("<max_thinking_length>4096</max_thinking_length>");
+    });
+
+    it("uses the default budget for synthetic -thinking models with no explicit config", () => {
+      const body = {
+        messages: [{ role: "user", content: "Think by model suffix" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6-thinking", body, true, {});
+
+      expect(contentOf(result)).toContain("<max_thinking_length>16000</max_thinking_length>");
+    });
+
+    it("does not inject thinking prefix for reasoning_effort none", () => {
+      const body = {
+        reasoning_effort: "none",
+        messages: [{ role: "user", content: "Do not think" }]
+      };
+
+      const result = openaiToKiroRequest("claude-sonnet-4.6", body, true, {});
+
+      expect(contentOf(result)).not.toContain("<thinking_mode>enabled</thinking_mode>");
+      expect(contentOf(result)).not.toContain("<max_thinking_length>");
     });
   });
 });

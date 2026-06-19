@@ -4,7 +4,7 @@ WYx0 fork of 9Router focused on provider automation, multi-account workflows, an
 
 This repository is forked from [decolua/9router](https://github.com/decolua/9router). The upstream project remains the base AI router. This fork documents and ships the WYx0 changes on top: Kiro automation, CodeBuddy automation, quota tracker upgrades, and small dashboard quality-of-life updates.
 
-This branch is synced with upstream 9Router `v0.5.2` while preserving WYx0 automation.
+This branch is synced with upstream 9Router `v0.5.4` while preserving WYx0 automation.
 
 ## Focus
 
@@ -17,15 +17,16 @@ This branch is synced with upstream 9Router `v0.5.2` while preserving WYx0 autom
 - Provider UX polish: refreshed provider icons, provider icon fallback, connection status filtering, and related dashboard updates.
 - Safer provider workflows: token refresh handling, account fallback, CodeBuddy tiny-stream retry, request detail compaction, and focused tests around the new automation paths.
 
-## Upstream v0.5.2 Included
+## Upstream v0.5.4 Included
 
-This fork includes upstream 9Router v0.5.2 updates while retaining WYx0-specific behavior, including:
+This fork includes upstream 9Router v0.5.4 updates while retaining WYx0-specific behavior, including:
 
 - Combo Fusion and capacity auto-switch improvements.
 - Kiro API-key/headless auth support.
 - Claude quota auto-ping and 429 throttling updates.
 - Upstream OpenSSE provider registry refactor, with WYx0 providers re-added to the registry.
-- Upstream provider, model, translator, CLI, runtime, and dashboard fixes from the v0.5.2 release line.
+- Upstream Kiro thinking budget, Antigravity/Kiro/Xiaomi, Combo Fusion, custom vision model, and compatible-node alias fixes from the v0.5.3/v0.5.4 release line.
+- Upstream provider, model, translator, CLI, runtime, and dashboard fixes through the v0.5.4 release line.
 
 ## What Changed In This Fork
 
@@ -146,7 +147,7 @@ This fork's current PR scope is intentionally centered on WYx0 changes:
 - Preserve Gemini Web cookie onboarding and provider branding.
 - Preserve CodeBuddy quota usage support.
 - Preserve quota tracker pagination and bulk/single view behavior.
-- Sync upstream 9Router v0.5.2 fixes/features while keeping fork metadata and packaging.
+- Sync upstream 9Router v0.5.4 fixes/features while keeping fork metadata and packaging.
 
 ## Upstream Credit
 

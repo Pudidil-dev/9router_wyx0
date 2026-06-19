@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import { resolveSessionId } from "../../utils/sessionManager.js";
 import {
   resolveKiroModel,
-  isThinkingEnabled,
+  resolveKiroThinkingBudget,
   buildThinkingSystemPrefix,
   KIRO_AGENTIC_SYSTEM_PROMPT,
   shouldExposeKiroReasoning,
@@ -557,7 +557,8 @@ export function openaiToKiroRequest(model, body, stream, credentials) {
   const topP = body.top_p;
 
   const { upstream: upstreamModel, agentic } = resolveKiroModel(model);
-  const thinkingEnabled = isThinkingEnabled(body, null, model);
+  const thinkingBudget = resolveKiroThinkingBudget(body, credentials?.rawHeaders, model);
+  const thinkingEnabled = thinkingBudget !== null;
   const exposeReasoning = shouldExposeKiroReasoning(body);
 
   const { history, currentMessage } = convertMessages(messages, tools, upstreamModel);
@@ -581,8 +582,8 @@ export function openaiToKiroRequest(model, body, stream, credentials) {
   // Order: thinking_mode tag first (so Kiro sees it before any user text),
   // then context/timestamp marker, then optional agentic chunked-write prompt.
   const prefixParts = [];
-  if (thinkingEnabled) {
-    prefixParts.push(buildThinkingSystemPrefix());
+  if (thinkingBudget !== null) {
+    prefixParts.push(buildThinkingSystemPrefix(thinkingBudget));
   }
   prefixParts.push(`[Context: Current time is ${timestamp}]`);
   if (agentic) {
