@@ -45,3 +45,19 @@ describe("automation browser options", () => {
     });
   });
 });
+
+describe("automation browser contexts", () => {
+  it("does not force a stale user-agent override for Google Chrome", async () => {
+    const { createFreshContext } = await import("../../src/lib/oauth/services/kiroBulkImportManager.js");
+    const newContext = vi.fn(async () => ({
+      addInitScript: vi.fn(async () => null),
+      newPage: vi.fn(async () => ({})),
+    }));
+
+    await createFreshContext({ newContext }, { browserChoice: AUTOMATION_BROWSER_GOOGLE_CHROME });
+
+    expect(newContext).toHaveBeenCalledWith(expect.not.objectContaining({
+      userAgent: expect.any(String),
+    }));
+  });
+});
