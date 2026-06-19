@@ -149,7 +149,7 @@ export default function ProviderDetailPage() {
 
   const triggerOAuthConnection = () => {
     if (providerActionsDisabled) return;
-    if (providerId === "kiro" || providerId === "codebuddy" || providerId === "qoder" || providerId === "1min-ai") {
+    if (providerId === "kiro" || providerId === "codebuddy" || providerId === "qoder") {
       router.push(`/dashboard/automation?provider=${providerId}`);
       return;
     }
@@ -228,7 +228,7 @@ export default function ProviderDetailPage() {
   const isAnthropicCompatible = isAnthropicCompatibleProvider(providerId);
   const isCompatible = isOpenAICompatible || isAnthropicCompatible;
   const hasDualAuthModes = !isCompatible && isOAuth && supportsApiKeyAuth;
-  const usesAutomationLogin = providerId === "kiro" || providerId === "codebuddy" || providerId === "qoder" || providerId === "1min-ai";
+  const usesAutomationLogin = providerId === "kiro" || providerId === "codebuddy" || providerId === "qoder";
   const oauthConnectionLabel = providerId === "xai" ? "Grok Build OAuth" : "OAuth";
   const apiKeyConnectionLabel = providerId === "xai" ? "xAI API Key" : "API Key";
   const thinkingConfig = AI_PROVIDERS[providerId]?.thinkingConfig || THINKING_CONFIG.extended;

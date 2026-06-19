@@ -10,7 +10,6 @@ This branch is synced with upstream 9Router `v0.5.4` while preserving WYx0 autom
 
 - Kiro bulk login automation with browser-assisted Google account flow and worker progress recovery.
 - CodeBuddy and Qoder bulk login automation with browser/device polling and saved OAuth connections.
-- Experimental 1min AI bulk login automation with conservative one-worker defaults.
 - Gemini Web cookie onboarding with auto-capture support and dedicated provider branding.
 - CodeBuddy quota tracking through the web console usage endpoint when a valid web session cookie is available.
 - Quota Tracker improvements, including provider pagination and single-account/bulk display modes.
@@ -35,7 +34,6 @@ This fork includes upstream 9Router v0.5.4 updates while retaining WYx0-specific
 - Added `/dashboard/automation` as the entry point for bulk provider workflows.
 - Added Kiro bulk import routes and services for browser-based account onboarding.
 - Added CodeBuddy and Qoder bulk import routes and services, including browser/device authorization polling.
-- Added experimental 1min AI bulk import support with a one-worker safety cap.
 - Added server-side worker capacity recommendations via `/api/system/capacity`, with browser-device fallback when the endpoint is unavailable.
 - Added reusable browser automation helpers for Google login, provider onboarding, region selection, privacy prompts, and manual follow-up.
 
@@ -143,7 +141,7 @@ npx vitest run tests/translator/bugs-kiro.test.js tests/translator/format-roundt
 This fork's current PR scope is intentionally centered on WYx0 changes:
 
 - Preserve Kiro automation.
-- Preserve CodeBuddy, Qoder, and 1min AI automation flows.
+- Preserve CodeBuddy and Qoder automation flows.
 - Preserve Gemini Web cookie onboarding and provider branding.
 - Preserve CodeBuddy quota usage support.
 - Preserve quota tracker pagination and bulk/single view behavior.
