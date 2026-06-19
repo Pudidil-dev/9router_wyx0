@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AUTOMATION_BROWSER_GOOGLE_CHROME,
   AUTOMATION_BROWSER_OPTIONS,
+  DEFAULT_AUTOMATION_BROWSER,
   normalizeAutomationBrowser,
 } from "../../src/shared/constants/automationBrowsers.js";
 
@@ -24,6 +25,7 @@ describe("automation browser options", () => {
       ])
     );
     expect(normalizeAutomationBrowser("google-chrome")).toBe(AUTOMATION_BROWSER_GOOGLE_CHROME);
+    expect(DEFAULT_AUTOMATION_BROWSER).toBe(AUTOMATION_BROWSER_GOOGLE_CHROME);
   });
 
   it("launches installed Google Chrome through Playwright channel chrome", async () => {
@@ -35,29 +37,13 @@ describe("automation browser options", () => {
     expect(launch).toHaveBeenCalledWith({
       channel: "chrome",
       headless: false,
-      ignoreDefaultArgs: ["--enable-automation"],
       args: [
         "--disable-blink-features=AutomationControlled",
         "--disable-infobars",
-        "--no-default-browser-check",
-        "--no-first-run",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-features=PrivateNetworkAccessRespectPreflightResults,PrivateNetworkAccessSendPreflights,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessPromptForUnsureBlocked,TranslateUI,OptimizationHints",
       ],
     });
-  });
-});
-
-describe("automation browser contexts", () => {
-  it("does not force a stale user-agent override for Google Chrome", async () => {
-    const { createFreshContext } = await import("../../src/lib/oauth/services/kiroBulkImportManager.js");
-    const newContext = vi.fn(async () => ({
-      addInitScript: vi.fn(async () => null),
-      newPage: vi.fn(async () => ({})),
-    }));
-
-    await createFreshContext({ newContext }, { browserChoice: AUTOMATION_BROWSER_GOOGLE_CHROME });
-
-    expect(newContext).toHaveBeenCalledWith(expect.not.objectContaining({
-      userAgent: expect.any(String),
-    }));
   });
 });

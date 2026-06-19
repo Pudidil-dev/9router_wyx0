@@ -201,7 +201,7 @@ export class QoderBulkImportManager extends KiroBulkImportManager {
       return;
     }
 
-    const { context, page } = await createFreshContext(job.browser, { browserChoice: job.browserChoice });
+    const { context, page } = await createFreshContext(job.browser);
     account.runtimeSession = { context, page };
     let pollController = null;
 

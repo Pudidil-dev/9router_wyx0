@@ -7,10 +7,19 @@ import {
 
 const CAMOFOX_UNAVAILABLE_MESSAGE = "Camofox browser support is not installed in this build. Switch to Playwright Chromium, Google Chrome, or install/configure Camofox support.";
 
+export const CHROMIUM_STEALTH_ARGS = [
+  "--disable-blink-features=AutomationControlled",
+  "--disable-infobars",
+  "--no-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-features=PrivateNetworkAccessRespectPreflightResults,PrivateNetworkAccessSendPreflights,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessPromptForUnsureBlocked,TranslateUI,OptimizationHints",
+];
+
 async function launchChromium({ headless = true } = {}) {
   const { chromium } = await import("playwright");
   return await chromium.launch({
     headless,
+    args: CHROMIUM_STEALTH_ARGS,
   });
 }
 
@@ -19,13 +28,7 @@ async function launchGoogleChrome({ headless = true } = {}) {
   return await chromium.launch({
     channel: "chrome",
     headless,
-    ignoreDefaultArgs: ["--enable-automation"],
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--disable-infobars",
-      "--no-default-browser-check",
-      "--no-first-run",
-    ],
+    args: CHROMIUM_STEALTH_ARGS,
   });
 }
 

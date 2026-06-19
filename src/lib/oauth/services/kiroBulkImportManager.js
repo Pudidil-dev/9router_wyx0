@@ -5,11 +5,7 @@ import { DATA_DIR } from "../../dataDir.js";
 import { KiroService } from "./kiro.js";
 import { createKiroCallbackMonitor, runKiroGoogleAutomation } from "./kiroGoogleAutomation.js";
 import { createAutomationBrowserLauncher } from "./automationBrowserLauncher.js";
-import {
-  AUTOMATION_BROWSER_GOOGLE_CHROME,
-  DEFAULT_AUTOMATION_BROWSER,
-  normalizeAutomationBrowser,
-} from "@/shared/constants/automationBrowsers";
+import { DEFAULT_AUTOMATION_BROWSER, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
 
 export const KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY = 4;
 export const KIRO_BULK_IMPORT_MIN_CONCURRENCY = 1;
@@ -324,17 +320,8 @@ patchWebGl(window.WebGLRenderingContext?.prototype);
 patchWebGl(window.WebGL2RenderingContext?.prototype);
 `;
 
-function getAutomationContextOptions(browserChoice = DEFAULT_AUTOMATION_BROWSER) {
-  const normalizedBrowser = normalizeAutomationBrowser(browserChoice);
-  if (normalizedBrowser === AUTOMATION_BROWSER_GOOGLE_CHROME) {
-    const { userAgent, ...nativeChromeOptions } = AUTOMATION_CONTEXT_OPTIONS;
-    return nativeChromeOptions;
-  }
-  return AUTOMATION_CONTEXT_OPTIONS;
-}
-
-export async function createFreshContext(browser, options = {}) {
-  const context = await browser.newContext(getAutomationContextOptions(options.browserChoice));
+export async function createFreshContext(browser) {
+  const context = await browser.newContext(AUTOMATION_CONTEXT_OPTIONS);
   await context.addInitScript?.(AUTOMATION_STEALTH_INIT_SCRIPT).catch(() => null);
   const page = await context.newPage();
   return { context, page };
@@ -710,7 +697,7 @@ export class KiroBulkImportManager {
 
     const kiroService = this.kiroServiceFactory();
     const socialAuth = kiroService.createSocialAuthorization("google");
-    const { context, page } = await createFreshContext(job.browser, { browserChoice: job.browserChoice });
+    const { context, page } = await createFreshContext(job.browser);
     const callbackPromise = createKiroCallbackMonitor(context, page);
     account.runtimeSession = { context, page };
 
