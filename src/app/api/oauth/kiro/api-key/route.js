@@ -60,6 +60,11 @@ export async function POST(request) {
     });
   } catch (error) {
     console.log("Kiro API key import error:", error);
-    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
+    // Do not reflect upstream response body to the client (SSRF hardening,
+    // GHSA-6mwv-4mrm-5p3m). Preserve the upstream status code when present.
+    return NextResponse.json(
+      { error: "API key validation failed" },
+      { status: error.status || 500 }
+    );
   }
 }
