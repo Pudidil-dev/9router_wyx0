@@ -475,6 +475,10 @@ async function handleGoogleCredentialInputs(page, email, password, reportStep) {
         filledByDom ? "google_email_dom_filled" : "google_email_dom_fill_failed",
         filledByDom ? "Google email field accepted DOM input" : "Google email DOM fallback did not fill the field"
       );
+      if (!filledByDom) {
+        await page.waitForTimeout(500);
+        return true;
+      }
     }
     reportStep("submitting_email", "Submitting email");
     const submitMethod = await submitGoogleInput(page, emailInput);
@@ -492,6 +496,10 @@ async function handleGoogleCredentialInputs(page, email, password, reportStep) {
       filledPassword ? "google_password_filled" : "google_password_fill_attempted",
       filledPassword ? "Google password field accepted input" : "Attempted to enter Google password"
     );
+    if (!filledPassword) {
+      await page.waitForTimeout(500);
+      return true;
+    }
     reportStep("submitting_password", "Submitting password");
     const submitMethod = await submitGoogleInput(page, passwordInput);
     reportStep("google_password_submitted", submitMethod === "next" ? "Clicked Google password Next button" : "Submitted Google password with Enter");
@@ -1147,14 +1155,6 @@ async function handleQoderSelectAccounts(page, reportStep) {
       }
     }
 
-    for (const button of clickables) {
-      if (button.offsetParent === null) continue;
-      const text = (button.textContent || button.value || "").trim();
-      if (!text) continue;
-      button.click();
-      return { clicked: true, method: `first-visible-btn: ${text.slice(0, 50)}` };
-    }
-
     return null;
   }, { allowAccountSelection: isDeviceFlowPage }).catch(() => null);
 
@@ -1165,6 +1165,9 @@ async function handleQoderSelectAccounts(page, reportStep) {
     return true;
   }
   if (result.clicked) {
+    if (/^first-visible-btn:/i.test(result.method || "")) {
+      return false;
+    }
     reportStep("qoder_select_accounts", `Qoder selectAccounts: ${result.method}`);
     await page.waitForTimeout(2000);
     return true;

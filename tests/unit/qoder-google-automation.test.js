@@ -190,6 +190,17 @@ function createQoderSelectionPage(url) {
   };
 }
 
+function createQoderDevicePageWithOnlyMarketingButton() {
+  return {
+    url() { return "https://qoder.com/device/selectAccounts"; },
+    async waitForTimeout() { return null; },
+    async evaluate(_fn, args = {}) {
+      if (!args.allowAccountSelection) return null;
+      return { clicked: true, method: "first-visible-btn: QoderWork" };
+    },
+  };
+}
+
 function createQoderMarketingRedirectPage() {
   let currentUrl = "https://qoder.com/qoderwork";
   const visited = [];
@@ -351,6 +362,18 @@ describe("Qoder Google automation", () => {
     expect(steps).toContain("qoder_page_seen");
     expect(steps).not.toContain("qoder_non_device_page");
     expect(steps).toContain("qoder_select_accounts");
+  });
+
+  it("does not click generic QoderWork buttons on the device flow page", async () => {
+    const page = createQoderDevicePageWithOnlyMarketingButton();
+    const steps = [];
+
+    const handled = await handleQoderSelectAccounts(page, (step) => steps.push(step));
+
+    expect(handled).toBe(false);
+    expect(steps).toContain("qoder_page_seen");
+    expect(steps).not.toContain("qoder_non_device_page");
+    expect(steps).not.toContain("qoder_select_accounts");
   });
 
   it("reopens Qoder device auth when provider redirects to a non-device page", async () => {
