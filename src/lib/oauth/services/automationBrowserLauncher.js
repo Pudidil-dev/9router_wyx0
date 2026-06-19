@@ -19,6 +19,13 @@ async function launchGoogleChrome({ headless = true } = {}) {
   return await chromium.launch({
     channel: "chrome",
     headless,
+    ignoreDefaultArgs: ["--enable-automation"],
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      "--disable-infobars",
+      "--no-default-browser-check",
+      "--no-first-run",
+    ],
   });
 }
 

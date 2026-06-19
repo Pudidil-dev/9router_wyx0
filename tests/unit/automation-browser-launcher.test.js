@@ -35,6 +35,13 @@ describe("automation browser options", () => {
     expect(launch).toHaveBeenCalledWith({
       channel: "chrome",
       headless: false,
+      ignoreDefaultArgs: ["--enable-automation"],
+      args: [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars",
+        "--no-default-browser-check",
+        "--no-first-run",
+      ],
     });
   });
 });
