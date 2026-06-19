@@ -9,7 +9,9 @@ vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
 
 const { BaseExecutor } = await import("../../open-sse/executors/base.js");
 const { DefaultExecutor } = await import("../../open-sse/executors/default.js");
+const { CodeBuddyExecutor } = await import("../../open-sse/executors/codebuddy-cn.js");
 const { getModelUpstreamId, isValidModel } = await import("../../open-sse/config/providerModels.js");
+const { getCapabilitiesForModel } = await import("../../open-sse/providers/capabilities.js");
 
 const credentials = {
   accessToken: "cb-access-token",
@@ -28,6 +30,23 @@ describe("CodeBuddy model mapping", () => {
     expect(getModelUpstreamId("cb", "claude-sonnet-4-6")).toBe("claude-sonnet-4.6");
     expect(getModelUpstreamId("cb", "claude-opus-4-6")).toBe("claude-opus-4.6");
     expect(getModelUpstreamId("cb", "claude-opus-4-7")).toBe("claude-opus-4.7-1m");
+  });
+  it("registers the CodeBuddy CN catalog and capabilities", () => {
+    expect(isValidModel("codebuddy-cn", "glm-5.2")).toBe(true);
+    expect(isValidModel("codebuddy-cn", "deepseek-v4-flash")).toBe(true);
+    expect(isValidModel("codebuddy-cn", "deepseek-v3-2-volc")).toBe(true);
+    expect(getCapabilitiesForModel("codebuddy-cn", "glm-5.2")).toMatchObject({
+      reasoning: true,
+      vision: false,
+      thinkingFormat: "openai",
+      contextWindow: 1000000,
+    });
+    expect(getCapabilitiesForModel("codebuddy-cn", "glm-5v-turbo")).toMatchObject({
+      reasoning: true,
+      vision: true,
+      thinkingFormat: "openai",
+      contextWindow: 200000,
+    });
   });
 });
 
@@ -67,6 +86,39 @@ describe("CodeBuddy executor transport", () => {
     });
     expect(decoded.messages[0]).toEqual({ role: "system", content: "You are CodeBuddy Code." });
     expect(decoded.messages[1]).toEqual({ role: "user", content: [{ type: "text", text: "hello" }] });
+  });
+  it("uses the dedicated CodeBuddy CN JSON transport", async () => {
+    fetchMock.mockResolvedValue(response(200));
+    const executor = new CodeBuddyExecutor();
+
+    const out = await executor.execute({
+      model: "glm-5.2",
+      body: {
+        model: "glm-5.2",
+        messages: [{ role: "user", content: "hello" }],
+        stream: false,
+        max_tokens: 8,
+      },
+      stream: false,
+      credentials: { apiKey: "cbcn-key" },
+    });
+
+    expect(out.response.status).toBe(200);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://copilot.tencent.com/v2/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer cbcn-key");
+    expect(init.headers["Content-Encoding"]).toBeUndefined();
+    expect(init.headers["x-codebuddy-request"]).toBe("1");
+    expect(init.headers["X-Product"]).toBe("SaaS");
+
+    const decoded = JSON.parse(init.body);
+    expect(decoded).toMatchObject({
+      model: "glm-5.2",
+      stream: true,
+      max_tokens: 8,
+      reasoning_effort: "medium",
+      reasoning_summary: "auto",
+    });
   });
 
   it("does not treat CodeBuddy request-illegal 403 responses as refreshable token failures", async () => {

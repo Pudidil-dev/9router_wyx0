@@ -1,7 +1,7 @@
 // Guards forceStream moved from chatCore hardcode → PROVIDERS schema (#5).
 import { describe, it, expect } from "vitest";
 
-const FORCED = ["openai", "codex", "commandcode"];
+const FORCED = ["openai", "codex", "commandcode", "codebuddy-cn"];
 
 describe("forceStream provider config", () => {
   it("only openai/codex/commandcode force streaming", async () => {

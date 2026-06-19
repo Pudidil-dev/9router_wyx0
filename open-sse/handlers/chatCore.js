@@ -25,6 +25,7 @@ import { compressMessages, formatRtkLog } from "../rtk/index.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { stripUnsupportedModalities } from "../translator/concerns/modality.js";
 import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
+import { isCodeBuddyChatProvider } from "../executors/default.js";
 
 /**
  * Core chat handler - shared between SSE and Worker
@@ -307,7 +308,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   // Streaming response
   const { onStreamComplete, streamDetailId } = buildOnStreamComplete({ ...sharedCtx });
-  const retryProviderResponse = provider === "codebuddy"
+  const retryProviderResponse = isCodeBuddyChatProvider(provider)
     ? async () => {
       log?.debug?.("RETRY", `${provider.toUpperCase()} tiny completion retry`);
       const retryResult = await executor.execute({ model, body: translatedBody, stream, credentials, signal: streamController.signal, log, proxyOptions });

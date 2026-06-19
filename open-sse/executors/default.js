@@ -25,6 +25,11 @@ const CODEBUDDY_ALLOWED_REQUEST_FIELDS = [
   "response_format",
 ];
 const CODEBUDDY_REQUEST_ILLEGAL_CODE = 11140;
+const CODEBUDDY_CHAT_PROVIDERS = new Set(["codebuddy"]);
+
+export function isCodeBuddyChatProvider(provider) {
+  return CODEBUDDY_CHAT_PROVIDERS.has(provider);
+}
 
 function codeBuddyRequestId() {
   return randomUUID().replace(/-/g, "");
@@ -301,7 +306,7 @@ export class DefaultExecutor extends BaseExecutor {
 
   transformRequest(model, body) {
     const transformed = this.applyJsonSchemaFallback(body);
-    if (this.provider === "codebuddy") {
+    if (isCodeBuddyChatProvider(this.provider)) {
       const maxTokens = Number(transformed.max_tokens);
       const maxCompletionTokens = Number(transformed.max_completion_tokens);
       return buildCodeBuddyBody(model, transformed, maxTokens, maxCompletionTokens);
@@ -320,13 +325,13 @@ export class DefaultExecutor extends BaseExecutor {
 
   prepareRequestBody(transformedBody, headers) {
     const bodyStr = JSON.stringify(transformedBody);
-    if (this.provider !== "codebuddy") return bodyStr;
+    if (!isCodeBuddyChatProvider(this.provider)) return bodyStr;
     headers["Content-Encoding"] = "gzip";
     return gzipSync(bodyStr);
   }
 
   parseError(response, bodyText) {
-    if (this.provider !== "codebuddy") return super.parseError(response, bodyText);
+    if (!isCodeBuddyChatProvider(this.provider)) return super.parseError(response, bodyText);
     const parsed = parseCodeBuddyErrorBody(bodyText);
     if (parsed?.code === CODEBUDDY_REQUEST_ILLEGAL_CODE) {
       return {
@@ -339,7 +344,7 @@ export class DefaultExecutor extends BaseExecutor {
   }
 
   async shouldRefreshForResponse(response) {
-    if (this.provider !== "codebuddy") return super.shouldRefreshForResponse(response);
+    if (!isCodeBuddyChatProvider(this.provider)) return super.shouldRefreshForResponse(response);
     if (response.status === 401) return true;
     if (response.status !== 403) return false;
     try {
@@ -413,7 +418,7 @@ export class DefaultExecutor extends BaseExecutor {
 
   buildHeaders(credentials, stream = true) {
     const headers = { "Content-Type": "application/json", ...this.config.headers };
-    if (this.provider === "codebuddy") {
+    if (isCodeBuddyChatProvider(this.provider)) {
       const requestId = codeBuddyRequestId();
       const conversationId = codeBuddyRequestId();
       headers["Authorization"] = `Bearer ${credentials.apiKey || credentials.accessToken}`;
@@ -421,7 +426,7 @@ export class DefaultExecutor extends BaseExecutor {
       headers["Content-Type"] = "application/json; charset=utf-8";
       headers["User-Agent"] = "CLI/2.105.2 CodeBuddy/2.105.2";
       headers["X-Requested-With"] = "XMLHttpRequest";
-      headers["X-Domain"] = credentials.providerSpecificData?.domain || credentials.providerSpecificData?.rawAuth?.domain || "www.codebuddy.ai";
+      headers["X-Domain"] = credentials.providerSpecificData?.domain || credentials.providerSpecificData?.rawAuth?.domain || this.config.domain || "www.codebuddy.ai";
       headers["X-Request-ID"] = requestId;
       headers["X-Conversation-ID"] = conversationId;
       headers["X-Conversation-Request-ID"] = conversationId;
