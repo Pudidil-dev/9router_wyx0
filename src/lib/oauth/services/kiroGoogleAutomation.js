@@ -1,54 +1,17 @@
 const DEFAULT_SHORT_TIMEOUT_MS = 90_000;
 const DEFAULT_MANUAL_TIMEOUT_MS = 15 * 60_000;
 
-const EMAIL_INPUT_SELECTOR = '#identifierId, input[name="identifier"], input[type="email"], input[autocomplete="username"], input[aria-label*="Email" i], input[aria-label*="phone" i]';
+const EMAIL_INPUT_SELECTOR = 'input[type="email"], input[autocomplete="username"]';
 const PASSWORD_INPUT_SELECTOR = 'input[type="password"]';
 
 const NEXT_BUTTON_SELECTORS = [
-  '#identifierNext button',
-  '#identifierNext [role="button"]',
-  '#passwordNext button',
-  '#passwordNext [role="button"]',
   'button:has-text("Next")',
   'button:has-text("Berikutnya")',
   'button:has-text("Continue")',
   'div[role="button"]:has-text("Next")',
   'div[role="button"]:has-text("Berikutnya")',
-];
-
-const GOOGLE_CONSENT_BUTTON_SELECTORS = [
-  '#submit_approve_access',
-  '#submit_approve_access button',
-  'button[jsname]:has-text("Allow")',
-  'button:has-text("Allow")',
-  '[role="button"]:has-text("Allow")',
-  'input[type="submit"][value="Allow"]',
-  'input[type="button"][value="Allow"]',
-  'button[jsname]:has-text("Izinkan")',
-  'button:has-text("Izinkan")',
-  '[role="button"]:has-text("Izinkan")',
-  'button:has-text("Continue")',
-  'button:has-text("Yes")',
-  'button:has-text("Accept")',
-  'button:has-text("Lanjutkan")',
-  'button:has-text("Setuju")',
-  'button:has-text("Saya mengerti")',
-  'button:has-text("Oke")',
-  'button:has-text("OK")',
-  'button:has-text("Got it")',
-  'button:has-text("I understand")',
-  'div[role="button"]:has-text("Continue")',
-  'div[role="button"]:has-text("Allow")',
-  'div[role="button"]:has-text("Lanjutkan")',
-  'div[role="button"]:has-text("Izinkan")',
-  'div[role="button"]:has-text("Setuju")',
-  'div[role="button"]:has-text("Saya mengerti")',
-  'div[role="button"]:has-text("Oke")',
-  'div[role="button"]:has-text("OK")',
-  'div[role="button"]:has-text("Got it")',
-  'div[role="button"]:has-text("I understand")',
-  'input[type="button"][value="Saya mengerti"]',
-  'input[type="submit"][value="Saya mengerti"]',
+  '#identifierNext button',
+  '#passwordNext button',
 ];
 
 const APPROVE_BUTTON_SELECTORS = [
@@ -232,12 +195,6 @@ const MANUAL_ASSIST_MARKERS = [
   "unusual activity detected",
   "captcha",
   "try again later",
-  "browser or app may not be secure",
-  "this browser or app may not be secure",
-  "browser may not be secure",
-  "app may not be secure",
-  "couldn’t sign you in from this browser",
-  "couldn't sign you in from this browser",
 ];
 
 const RESTRICTED_ACCOUNT_MARKERS = [
@@ -278,8 +235,6 @@ const GOOGLE_ONBOARDING_MARKERS = [
   "pilih setelan anda",
 ];
 
-const GOOGLE_CONSENT_TEXT_PATTERN = /wants to access|ingin mengakses|akses ke akun google|choose what .* can access|grant .* access|akan mengizinkan .* mengakses|mengakses info tentang anda|login ke .*google akan mengizinkan/i;
-
 const KIRO_CALLBACK_PREFIX = "kiro://kiro.kiroAgent/authenticate-success";
 
 function parseCallbackUrl(rawUrl) {
@@ -314,8 +269,8 @@ async function clickFirstVisible(page, selectors) {
       const visible = await locator.isVisible().catch(() => false);
       if (!visible) continue;
 
-      const clicked = await locator.click({ timeout: 5_000 }).then(() => true).catch(() => false);
-      if (clicked) return true;
+      await locator.click({ timeout: 5_000 }).catch(() => null);
+      return true;
     }
   }
 
@@ -396,112 +351,6 @@ async function getFirstVisibleLocator(page, selector) {
   return null;
 }
 
-async function hasGoogleCredentialInput(page) {
-  return Boolean(
-    await getFirstVisibleLocator(page, EMAIL_INPUT_SELECTOR)
-      || await getFirstVisibleLocator(page, PASSWORD_INPUT_SELECTOR)
-  );
-}
-
-async function fillGoogleInput(locator, value) {
-  await locator.scrollIntoViewIfNeeded?.().catch(() => null);
-  await locator.click({ timeout: 5_000 }).catch(() => null);
-
-  await locator.fill(value, { timeout: 15_000 }).catch(() => null);
-  const currentValue = await locator.inputValue?.().catch(() => "");
-  if (currentValue === value) return true;
-
-  await locator.click({ timeout: 5_000 }).catch(() => null);
-  await locator.press?.("Control+A").catch(() => null);
-  await locator.press?.("Meta+A").catch(() => null);
-  await locator.press?.("Backspace").catch(() => null);
-
-  const typed = await locator.pressSequentially?.(value, { delay: 35 }).then(() => true).catch(() => false);
-  const typedValue = await locator.inputValue?.().catch(() => "");
-  if (typed && typedValue === value) return true;
-
-  await locator.press?.("Control+A").catch(() => null);
-  await locator.press?.("Meta+A").catch(() => null);
-  await locator.press?.("Backspace").catch(() => null);
-
-  await locator.type?.(value, { delay: 35 }).catch(() => null);
-  return (await locator.inputValue?.().catch(() => "")) === value;
-}
-
-async function submitGoogleInput(page, locator) {
-  const clickedNext = await clickFirstVisible(page, NEXT_BUTTON_SELECTORS);
-  if (clickedNext) return "next";
-
-  const pressedInputEnter = await locator.press?.("Enter").then(() => true).catch(() => false);
-  if (pressedInputEnter) return "enter";
-
-  await page.keyboard?.press?.("Enter").catch(() => null);
-  return "keyboard_enter";
-}
-
-async function fillGoogleInputByDom(page, selectors, value) {
-  for (const scope of getInteractionScopes(page)) {
-    const filled = await scope.evaluate(({ selectors: candidateSelectors, value: inputValue }) => {
-      const input = candidateSelectors
-        .map((selector) => document.querySelector(selector))
-        .find((element) => element instanceof HTMLInputElement && element.offsetParent !== null);
-      if (!input) return false;
-
-      input.focus();
-      input.value = inputValue;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      return input.value === inputValue;
-    }, { selectors, value }).catch(() => false);
-    if (filled) return true;
-  }
-
-  return false;
-}
-
-async function handleGoogleCredentialInputs(page, email, password, reportStep) {
-  const emailInput = await getFirstVisibleLocator(page, EMAIL_INPUT_SELECTOR);
-  if (emailInput) {
-    reportStep("google_email_input_found", "Google email input detected");
-    reportStep("entering_email", "Entering Google email");
-    const filledEmail = await fillGoogleInput(emailInput, email);
-    reportStep(
-      filledEmail ? "google_email_filled" : "google_email_fill_fallback",
-      filledEmail ? "Google email field accepted input" : "Trying DOM fallback for Google email input"
-    );
-    if (!filledEmail) {
-      const filledByDom = await fillGoogleInputByDom(page, ["#identifierId", 'input[name="identifier"]', 'input[type="email"]'], email);
-      reportStep(
-        filledByDom ? "google_email_dom_filled" : "google_email_dom_fill_failed",
-        filledByDom ? "Google email field accepted DOM input" : "Google email DOM fallback did not fill the field"
-      );
-    }
-    reportStep("submitting_email", "Submitting email");
-    const submitMethod = await submitGoogleInput(page, emailInput);
-    reportStep("google_email_submitted", submitMethod === "next" ? "Clicked Google email Next button" : "Submitted Google email with Enter");
-    await page.waitForTimeout(900);
-    return true;
-  }
-
-  const passwordInput = await getFirstVisibleLocator(page, PASSWORD_INPUT_SELECTOR);
-  if (passwordInput) {
-    reportStep("google_password_input_found", "Google password input detected");
-    reportStep("entering_password", "Entering Google password");
-    const filledPassword = await fillGoogleInput(passwordInput, password);
-    reportStep(
-      filledPassword ? "google_password_filled" : "google_password_fill_attempted",
-      filledPassword ? "Google password field accepted input" : "Attempted to enter Google password"
-    );
-    reportStep("submitting_password", "Submitting password");
-    const submitMethod = await submitGoogleInput(page, passwordInput);
-    reportStep("google_password_submitted", submitMethod === "next" ? "Clicked Google password Next button" : "Submitted Google password with Enter");
-    await page.waitForTimeout(900);
-    return true;
-  }
-
-  return false;
-}
-
 async function readPageText(page) {
   const chunks = [];
   for (const scope of getInteractionScopes(page)) {
@@ -517,48 +366,6 @@ async function readPageText(page) {
 function includesAny(text, markers) {
   const normalized = String(text || "").toLowerCase();
   return markers.some((marker) => normalized.includes(marker));
-}
-
-function isTargetClosedError(error) {
-  return /target page, context or browser has been closed|browser has been closed|context.*closed|page.*closed/i.test(error?.message || "");
-}
-
-async function waitForSuccessAfterBrowserClosed({
-  successPromise,
-  timeoutMs,
-  reportStep,
-  serviceLabel,
-  successStep,
-  successMessage,
-}) {
-  reportStep("waiting_for_token_after_browser_closed", `Browser closed while ${serviceLabel} authorization was pending; waiting for token polling`);
-
-  const result = await Promise.race([
-    successPromise.then((value) => ({ kind: "success", value })).catch((error) => ({ kind: "error", error })),
-    new Promise((resolve) => setTimeout(() => resolve({ kind: "timeout" }), Math.max(timeoutMs, 0))),
-  ]);
-
-  if (result.kind === "success") {
-    reportStep(successStep, successMessage);
-    return {
-      status: "success",
-      ...result.value,
-    };
-  }
-
-  if (result.kind === "error") {
-    reportStep("oauth_timeout", `Timed out waiting for ${serviceLabel} authorization`);
-    return {
-      status: "failed_timeout",
-      error: result.error?.message || `Timed out waiting for ${serviceLabel} authorization`,
-    };
-  }
-
-  reportStep("manual_assist_required", `${serviceLabel} browser closed before authorization completed`);
-  return {
-    status: "needs_manual",
-    error: `${serviceLabel} browser closed before authorization completed. Token polling did not finish automatically.`,
-  };
 }
 
 function isGoogleAuthPage(page) {
@@ -592,41 +399,11 @@ function isQoderPage(page) {
   }
 }
 
-function isQoderDeviceFlowPage(page) {
-  try {
-    const url = new URL(page.url());
-    if (!(url.hostname === "qoder.com" || url.hostname.endsWith(".qoder.com"))) return false;
-    return /^\/device(?:\/|$)/i.test(url.pathname) || /^\/oauth(?:\/|$)/i.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isQoderDeviceAuthUrl(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    if (!(url.hostname === "qoder.com" || url.hostname.endsWith(".qoder.com"))) return false;
-    return /^\/device(?:\/|$)/i.test(url.pathname) || /^\/oauth(?:\/|$)/i.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function getSafePagePath(page) {
-  try {
-    const url = new URL(page.url());
-    return url.pathname || "/";
-  } catch {
-    return "unknown";
-  }
-}
-
 async function handleGoogleConsent(page, reportStep) {
   if (!isGoogleAuthPage(page)) return false;
-  if (await hasGoogleCredentialInput(page)) return false;
 
   const text = await readPageText(page);
-  const looksLikeConsent = GOOGLE_CONSENT_TEXT_PATTERN.test(text);
+  const looksLikeConsent = /wants to access|ingin mengakses|akses ke akun google|allow/i.test(text);
   if (!looksLikeConsent) return false;
 
   await page.evaluate(() => {
@@ -636,7 +413,7 @@ async function handleGoogleConsent(page, reportStep) {
   }).catch(() => null);
   await page.waitForTimeout(300);
 
-  const clickedApprove = await clickFirstActionable(page, GOOGLE_CONSENT_BUTTON_SELECTORS);
+  const clickedApprove = await clickFirstActionable(page, APPROVE_BUTTON_SELECTORS);
   if (clickedApprove) {
     reportStep("approving_google_consent", "Approving Google OAuth consent");
     await page.waitForTimeout(1000);
@@ -647,8 +424,6 @@ async function handleGoogleConsent(page, reportStep) {
 }
 
 async function handleGoogleOnboarding(page, pageText) {
-  if (await hasGoogleCredentialInput(page)) return false;
-
   const text = String(pageText || "");
   if (!includesAny(text, GOOGLE_ONBOARDING_MARKERS)) {
     return false;
@@ -1068,15 +843,8 @@ async function handleCodeBuddyStartedAuthorization(page, reportStep) {
 
 async function handleQoderSelectAccounts(page, reportStep) {
   if (!isQoderPage(page) || isGoogleAuthPage(page)) return false;
-  const isDeviceFlowPage = isQoderDeviceFlowPage(page);
-  const pagePath = getSafePagePath(page);
 
-  reportStep("qoder_page_seen", `Qoder page path: ${pagePath}`);
-  if (!isDeviceFlowPage) {
-    reportStep("qoder_non_device_page", `Qoder non-device page path: ${pagePath}`);
-  }
-
-  const result = await page.evaluate(({ allowAccountSelection }) => {
+  const result = await page.evaluate(() => {
     const bodyText = document.body?.innerText?.slice(0, 500) || "";
     const lowered = bodyText.toLowerCase();
     const successIndicators = [
@@ -1088,18 +856,11 @@ async function handleQoderSelectAccounts(page, reportStep) {
       "successfully signed in",
       "login successful",
       "authorized successfully",
-      "authorization complete",
-      "authentication complete",
-      "device login complete",
-      "you can close this page",
-      "close this page",
     ];
 
     if (successIndicators.some((indicator) => lowered.includes(indicator))) {
       return { success: true, clicked: false, method: "success-page" };
     }
-
-    if (!allowAccountSelection) return null;
 
     const clickables = document.querySelectorAll(
       'button, a, [role="button"], [role="link"], input[type="submit"]'
@@ -1156,7 +917,7 @@ async function handleQoderSelectAccounts(page, reportStep) {
     }
 
     return null;
-  }, { allowAccountSelection: isDeviceFlowPage }).catch(() => null);
+  }).catch(() => null);
 
   if (!result) return false;
   if (result.success) {
@@ -1190,10 +951,6 @@ async function handleProviderOnboarding(page, reportStep, serviceLabel) {
   const handledQoderSelectAccounts = await handleQoderSelectAccounts(page, reportStep);
   if (handledQoderSelectAccounts) {
     return true;
-  }
-
-  if (isQoderPage(page)) {
-    return false;
   }
 
   const handledCodeBuddyRegion = await handleCodeBuddyRegionPage(page, reportStep);
@@ -1364,7 +1121,6 @@ export async function runGoogleAccountAutomation({
   onStep,
 }) {
   const startTime = Date.now();
-  let qoderDeviceAuthReopened = false;
   const reportStep = (step, message) => {
     onStep?.(step, message);
   };
@@ -1375,9 +1131,14 @@ export async function runGoogleAccountAutomation({
 
   await handleProviderLoginGate(page, reportStep);
 
-  await handleGoogleCredentialInputs(page, email, password, reportStep);
+  const emailInput = await getFirstVisibleLocator(page, EMAIL_INPUT_SELECTOR);
+  if (emailInput) {
+    reportStep("entering_email", "Entering Google email");
+    await emailInput.fill(email, { timeout: 15_000 });
+    reportStep("submitting_email", "Submitting email");
+    await clickFirstVisible(page, NEXT_BUTTON_SELECTORS);
+  }
 
-  try {
   while (Date.now() - startTime < shortTimeoutMs) {
     const successResult = await Promise.race([
       successPromise.then((result) => ({ kind: "success", result })).catch((error) => ({ kind: "success_error", error })),
@@ -1400,42 +1161,13 @@ export async function runGoogleAccountAutomation({
       };
     }
 
-    const handledCredentialInput = await handleGoogleCredentialInputs(page, email, password, reportStep);
-    if (handledCredentialInput) {
-      continue;
-    }
-
     const handledGoogleConsent = await handleGoogleConsent(page, reportStep);
     if (handledGoogleConsent) {
       continue;
     }
 
-    const providerPage = isProviderPage(page) && !isGoogleAuthPage(page);
-    if (providerPage) {
-      const handledProviderOnboarding = await handleProviderOnboarding(page, reportStep, serviceLabel);
-      if (handledProviderOnboarding) {
-        continue;
-      }
-
-      if (!qoderDeviceAuthReopened && isQoderDeviceAuthUrl(authUrl) && isQoderPage(page) && !isQoderDeviceFlowPage(page)) {
-        qoderDeviceAuthReopened = true;
-        reportStep("reopening_qoder_device_auth", "Reopening Qoder device authorization after provider redirected to a non-device page");
-        await page.goto(authUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
-        await page.waitForTimeout(1500);
-        continue;
-      }
-    }
-
     const text = await readPageText(page);
-    if (includesAny(text, MANUAL_ASSIST_MARKERS)) {
-      reportStep("manual_assist_required", "Google requested CAPTCHA, 2FA, recovery verification, or secure-browser verification");
-      return {
-        status: "needs_manual",
-        error: "Manual assist required in the browser session (CAPTCHA, 2FA, recovery, suspicious-login, or secure-browser challenge).",
-      };
-    }
-
-    if (!providerPage && includesAny(text, INVALID_CREDENTIAL_MARKERS)) {
+    if (includesAny(text, INVALID_CREDENTIAL_MARKERS)) {
       reportStep("invalid_credentials", "Google rejected the supplied email or password");
       return {
         status: "failed_invalid_credentials",
@@ -1463,17 +1195,43 @@ export async function runGoogleAccountAutomation({
       };
     }
 
+    if (includesAny(text, MANUAL_ASSIST_MARKERS)) {
+      reportStep("manual_assist_required", "Google requested CAPTCHA, 2FA, or recovery verification");
+      return {
+        status: "needs_manual",
+        error: "Manual assist required in the browser session (CAPTCHA, 2FA, recovery, or suspicious-login challenge).",
+      };
+    }
+
     const handledOnboarding = await handleGoogleOnboarding(page, text);
     if (handledOnboarding) {
       reportStep("google_onboarding", "Accepted Google onboarding or privacy prompt");
       continue;
     }
 
-    if (!providerPage) {
-      const handledProviderOnboarding = await handleProviderOnboarding(page, reportStep, serviceLabel);
-      if (handledProviderOnboarding) {
-        continue;
-      }
+    const handledProviderOnboarding = await handleProviderOnboarding(page, reportStep, serviceLabel);
+    if (handledProviderOnboarding) {
+      continue;
+    }
+
+    const nextEmailInput = await getFirstVisibleLocator(page, EMAIL_INPUT_SELECTOR);
+    if (nextEmailInput) {
+      reportStep("entering_email", "Entering Google email");
+      await nextEmailInput.fill(email, { timeout: 15_000 });
+      reportStep("submitting_email", "Submitting email");
+      await clickFirstVisible(page, NEXT_BUTTON_SELECTORS);
+      await page.waitForTimeout(700);
+      continue;
+    }
+
+    const passwordInput = await getFirstVisibleLocator(page, PASSWORD_INPUT_SELECTOR);
+    if (passwordInput) {
+      reportStep("entering_password", "Entering Google password");
+      await passwordInput.fill(password, { timeout: 15_000 });
+      reportStep("submitting_password", "Submitting password");
+      await clickFirstVisible(page, NEXT_BUTTON_SELECTORS);
+      await page.waitForTimeout(700);
+      continue;
     }
 
     const handledProviderGate = await handleProviderLoginGate(page, reportStep);
@@ -1481,30 +1239,15 @@ export async function runGoogleAccountAutomation({
       continue;
     }
 
-    if (!isGoogleAuthPage(page) && !(await hasGoogleCredentialInput(page))) {
-      const clickedApprove = await clickFirstVisible(page, APPROVE_BUTTON_SELECTORS);
-      if (clickedApprove) {
-        reportStep("approving_consent", `Approving ${serviceLabel} consent`);
-        await page.waitForTimeout(700);
-        continue;
-      }
+    const clickedApprove = await clickFirstVisible(page, APPROVE_BUTTON_SELECTORS);
+    if (clickedApprove) {
+      reportStep("approving_consent", `Approving Google or ${serviceLabel} consent`);
+      await page.waitForTimeout(700);
+      continue;
     }
 
     reportStep("waiting_for_next_screen", `Waiting for the next Google or ${serviceLabel} screen`);
     await page.waitForTimeout(700);
-  }
-  } catch (error) {
-    if (isTargetClosedError(error)) {
-      return await waitForSuccessAfterBrowserClosed({
-        successPromise,
-        timeoutMs: shortTimeoutMs - (Date.now() - startTime),
-        reportStep,
-        serviceLabel,
-        successStep,
-        successMessage,
-      });
-    }
-    throw error;
   }
 
   reportStep("manual_assist_required", `Flow did not complete ${serviceLabel} authorization automatically`);

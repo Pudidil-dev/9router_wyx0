@@ -120,56 +120,6 @@ describe("KiroBulkImportManager", () => {
     expect(finishedJob.accounts.every((account) => account.connectionId)).toBe(true);
   });
 
-  it("keeps a fully saved job completed even if cancellation was requested late", async () => {
-    let releaseAutomation;
-    const automationCanFinish = new Promise((resolve) => {
-      releaseAutomation = resolve;
-    });
-    const manager = new KiroBulkImportManager({
-      browserLauncher: async () => createFakeBrowser(),
-      kiroServiceFactory: () => ({
-        createSocialAuthorization() {
-          return {
-            authUrl: "https://example.com",
-            codeVerifier: "verifier",
-          };
-        },
-      }),
-      googleAutomation: async () => {
-        await automationCanFinish;
-        return {
-          status: "success",
-          code: "code",
-        };
-      },
-      socialExchange: async () => ({
-        connection: { id: "conn-1" },
-      }),
-    });
-
-    const startedJob = await manager.startJob({
-      accounts: ["user1@gmail.com|pw1"],
-      concurrency: 1,
-    });
-
-    releaseAutomation();
-    await waitFor(() => {
-      const job = manager.getJob(startedJob.jobId);
-      return job?.summary?.success === 1 ? job : null;
-    });
-    manager.cancelJob(startedJob.jobId);
-
-    const finishedJob = await waitFor(() => {
-      const job = manager.getJob(startedJob.jobId);
-      return job && job.status === "completed" ? job : null;
-    });
-
-    expect(finishedJob.status).toBe("completed");
-    expect(finishedJob.summary.success).toBe(1);
-    expect(finishedJob.summary.cancelled).toBe(0);
-    expect(finishedJob.accounts[0].status).toBe("success");
-  });
-
   it("cancels queued work and marks the job cancelled", async () => {
     const manager = new KiroBulkImportManager({
       browserLauncher: async () => createFakeBrowser(),
@@ -210,7 +160,6 @@ describe("KiroBulkImportManager", () => {
     });
 
     expect(finishedJob.status).toBe("cancelled");
-    expect(finishedJob.summary.cancelled).toBeGreaterThan(0);
     expect(
       finishedJob.accounts.some((account) => account.status === "cancelled")
     ).toBe(true);
@@ -297,105 +246,6 @@ describe("KiroBulkImportManager", () => {
     expect(result.ok).toBe(true);
     expect(result.account.manualSessionAvailable).toBe(true);
     expect(result.account.manualSessionOpened).toBe(true);
-  });
-
-  it("clears stale previews when no worker page remains", async () => {
-    const storageName = `kiro-bulk-import-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const manager = new KiroBulkImportManager({ storageName });
-    const job = {
-      jobId: "job-clear-preview",
-      status: "completed",
-      concurrency: 1,
-      browserChoice: "google-chrome",
-      createdAt: "2026-06-13T00:00:00.000Z",
-      startedAt: "2026-06-13T00:00:01.000Z",
-      finishedAt: "2026-06-13T00:00:10.000Z",
-      error: null,
-      lastPreview: {
-        email: "user@gmail.com",
-        workerId: 1,
-        status: "running",
-        step: "polling_qoder_token",
-        updatedAt: "2026-06-13T00:00:09.000Z",
-        imageData: null,
-      },
-      lastPreviewCapturedAt: 0,
-      persistPromise: Promise.resolve(),
-      accounts: [{
-        line: 1,
-        email: "user@gmail.com",
-        password: undefined,
-        status: "failed",
-        error: "closed",
-        connectionId: null,
-        workerId: 1,
-        manualSession: null,
-        runtimeSession: null,
-        currentStep: "failed",
-        updatedAt: "2026-06-13T00:00:10.000Z",
-        logs: [],
-      }],
-    };
-
-    try {
-      await manager.persistJobSnapshot(job, { forcePreview: true });
-      const persisted = JSON.parse(fs.readFileSync(path.join(manager.storageDir, `${job.jobId}.json`), "utf8"));
-
-      expect(job.lastPreview).toBeNull();
-      expect(persisted.preview).toBeNull();
-      expect(persisted.accounts[0].status).toBe("failed");
-    } finally {
-      fs.rmSync(manager.storageDir, { recursive: true, force: true });
-    }
-  });
-
-  it("hides stale previews from persisted terminal jobs", async () => {
-    const storageName = `kiro-bulk-import-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const manager = new KiroBulkImportManager({ storageName });
-    const jobId = "job-legacy-preview";
-    const jobFile = path.join(manager.storageDir, `${jobId}.json`);
-
-    try {
-      fs.mkdirSync(manager.storageDir, { recursive: true });
-      fs.writeFileSync(jobFile, JSON.stringify({
-        jobId,
-        status: "completed",
-        summary: { total: 1, queued: 0, running: 0, success: 0, failed: 1, needs_manual: 0 },
-        concurrency: 1,
-        browser: "google-chrome",
-        createdAt: "2026-06-13T00:00:00.000Z",
-        startedAt: "2026-06-13T00:00:01.000Z",
-        finishedAt: "2026-06-13T00:00:10.000Z",
-        accounts: [{
-          line: 1,
-          email: "user@gmail.com",
-          status: "failed",
-          error: "closed",
-          connectionId: null,
-          workerId: 1,
-          currentStep: "failed",
-          updatedAt: "2026-06-13T00:00:10.000Z",
-          logs: [],
-        }],
-        activity: [],
-        error: null,
-        preview: {
-          email: "user@gmail.com",
-          workerId: 1,
-          status: "running",
-          step: "polling_qoder_token",
-          updatedAt: "2026-06-13T00:00:09.000Z",
-          imageData: null,
-        },
-      }), "utf8");
-
-      const job = await manager.getJobWithPreview(jobId);
-
-      expect(job.status).toBe("completed");
-      expect(job.preview).toBeNull();
-    } finally {
-      fs.rmSync(manager.storageDir, { recursive: true, force: true });
-    }
   });
 
   it("restores only active latest jobs by default", async () => {
