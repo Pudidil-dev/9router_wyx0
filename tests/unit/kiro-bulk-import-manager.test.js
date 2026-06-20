@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -7,6 +7,7 @@ import {
   KIRO_BULK_IMPORT_MAX_CONCURRENCY,
   KIRO_BULK_IMPORT_MIN_CONCURRENCY,
   KiroBulkImportManager,
+  closeKiroContextAfterCallback,
 } from "../../src/lib/oauth/services/kiroBulkImportManager.js";
 
 function createFakeBrowser() {
@@ -72,13 +73,33 @@ describe("kiro bulk import manager helpers", () => {
     expect(__test__.clampConcurrency("999")).toBe(KIRO_BULK_IMPORT_MAX_CONCURRENCY);
     expect(__test__.clampConcurrency("3")).toBe(3);
   });
+
+  it("closes only the worker context after a Kiro callback is captured", async () => {
+    let resolveCallback;
+    const callbackPromise = new Promise((resolve) => {
+      resolveCallback = resolve;
+    });
+    const context = { close: vi.fn(async () => null) };
+    const closePromise = closeKiroContextAfterCallback(callbackPromise, context);
+
+    resolveCallback({ code: "callback-code" });
+
+    await expect(closePromise).resolves.toBe(true);
+    expect(context.close).toHaveBeenCalledOnce();
+  });
 });
 
 describe("KiroBulkImportManager", () => {
   it("processes accounts once and completes with saved connections", async () => {
     const processed = [];
+    const launchedBrowsers = [];
     const manager = new KiroBulkImportManager({
-      browserLauncher: async () => createFakeBrowser(),
+      browserLauncher: async () => {
+        const browser = createFakeBrowser();
+        browser.close = vi.fn(async () => null);
+        launchedBrowsers.push(browser);
+        return browser;
+      },
       kiroServiceFactory: () => ({
         createSocialAuthorization() {
           return {
@@ -118,6 +139,40 @@ describe("KiroBulkImportManager", () => {
     expect(finishedJob.summary.success).toBe(2);
     expect(finishedJob.summary.failed).toBe(0);
     expect(finishedJob.accounts.every((account) => account.connectionId)).toBe(true);
+    expect(launchedBrowsers).toHaveLength(2);
+    expect(launchedBrowsers.every((browser) => browser.close.mock.calls.length > 0)).toBe(true);
+  });
+
+  it("reports a browser-context startup failure instead of leaving accounts running", async () => {
+    const manager = new KiroBulkImportManager({
+      browserLauncher: async () => ({
+        async newContext() {
+          throw new Error("Camoufox context startup failed");
+        },
+        async close() {
+          return null;
+        },
+      }),
+      kiroServiceFactory: () => ({
+        createSocialAuthorization() {
+          return { authUrl: "https://example.com", codeVerifier: "verifier" };
+        },
+      }),
+    });
+
+    const startedJob = manager.startJob({
+      accounts: ["user@gmail.com|pw"],
+      concurrency: 1,
+    });
+
+    const finishedJob = await waitFor(() => {
+      const job = manager.getJob(startedJob.jobId);
+      return job?.status === "completed" ? job : null;
+    });
+
+    expect(finishedJob.summary.running).toBe(0);
+    expect(finishedJob.summary.failed).toBe(1);
+    expect(finishedJob.accounts[0].error).toContain("Camoufox context startup failed");
   });
 
   it("keeps a fully saved job completed even if cancellation was requested late", async () => {
@@ -214,6 +269,48 @@ describe("KiroBulkImportManager", () => {
     expect(
       finishedJob.accounts.some((account) => account.status === "cancelled")
     ).toBe(true);
+  });
+
+  it("does not save a late Kiro callback after cancellation", async () => {
+    let releaseAutomation;
+    const automationCanFinish = new Promise((resolve) => {
+      releaseAutomation = resolve;
+    });
+    const socialExchange = vi.fn(async () => ({
+      connection: { id: "conn-late" },
+    }));
+    const manager = new KiroBulkImportManager({
+      browserLauncher: async () => createFakeBrowser(),
+      kiroServiceFactory: () => ({
+        createSocialAuthorization() {
+          return { authUrl: "https://example.com", codeVerifier: "verifier" };
+        },
+      }),
+      googleAutomation: async () => {
+        await automationCanFinish;
+        return { status: "success", code: "late-code" };
+      },
+      socialExchange,
+    });
+
+    const startedJob = await manager.startJob({
+      accounts: ["user1@gmail.com|pw1"],
+      concurrency: 1,
+    });
+    await waitFor(() => manager.getJob(startedJob.jobId)?.summary?.running === 1);
+
+    const cancelledJob = manager.cancelJob(startedJob.jobId);
+    expect(cancelledJob.status).toBe("cancelled");
+    expect(cancelledJob.summary.cancelled).toBe(1);
+
+    releaseAutomation();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const finalJob = manager.getJob(startedJob.jobId);
+    expect(finalJob.status).toBe("cancelled");
+    expect(finalJob.summary.success).toBe(0);
+    expect(finalJob.summary.cancelled).toBe(1);
+    expect(socialExchange).not.toHaveBeenCalled();
   });
 
   it("marks persisted active snapshots cancelled when no worker is attached", () => {

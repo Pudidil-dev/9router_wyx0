@@ -25,6 +25,8 @@
 - Keep provider-specific token fields and refresh rules in provider-local services.
 - Keep browser automation, session scraping, and bulk account import flows inside provider-local OAuth services rather than route handlers or dashboard components.
 - Provider bulk import managers should clear provider-specific interstitials, modals, and login gates before deciding a browser session is stuck or needs manual assist.
+- Provider automation must use isolated Camoufox sessions; bulk workers run headless and close only the affected worker context after callback capture while retaining redirect-header and navigation-event fallbacks.
+- Bulk import cancellation must immediately finalize active accounts and prevent late browser callbacks from changing cancelled results or saving new credentials.
 - Handle corrupt, absent, and legacy data explicitly where the surrounding module supports recovery.
 
 ## Verification

@@ -113,7 +113,7 @@ describe("Kiro bulk import routes", () => {
     managerMock.getJobWithPreview.mockResolvedValue(null);
 
     const { GET } = await import("../../src/app/api/oauth/kiro/bulk-import/[jobId]/route.js");
-    const response = await GET({}, { params: { jobId: "missing" } });
+    const response = await GET({}, { params: Promise.resolve({ jobId: "missing" }) });
 
     expect(response.status).toBe(404);
     expect(response.body.error).toBe("Bulk import job not found");
@@ -193,7 +193,7 @@ describe("Kiro bulk import routes", () => {
     });
 
     const { POST } = await import("../../src/app/api/oauth/kiro/bulk-import/[jobId]/cancel/route.js");
-    const response = await POST({}, { params: { jobId: "job-1" } });
+    const response = await POST({}, { params: Promise.resolve({ jobId: "job-1" }) });
 
     expect(response.status).toBe(200);
     expect(managerMock.cancelJob).toHaveBeenCalledWith("job-1");
@@ -232,7 +232,7 @@ describe("Kiro bulk import routes", () => {
     });
 
     const { POST } = await import("../../src/app/api/oauth/kiro/bulk-import/[jobId]/manual/[workerId]/route.js");
-    const response = await POST({}, { params: { jobId: "job-1", workerId: "2" } });
+    const response = await POST({}, { params: Promise.resolve({ jobId: "job-1", workerId: "2" }) });
 
     expect(response.status).toBe(200);
     expect(managerMock.openManualSession).toHaveBeenCalledWith("job-1", "2");

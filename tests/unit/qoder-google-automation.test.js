@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleQoderSelectAccounts, runGoogleAccountAutomation } from "../../src/lib/oauth/services/kiroGoogleAutomation.js";
+import { handleQoderSelectAccounts, runGoogleAccountAutomation } from "../../src/lib/oauth/services/automation/googleOAuth.js";
 
 function createLocator(overrides = {}) {
   return Object.assign({

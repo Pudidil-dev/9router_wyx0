@@ -38,7 +38,7 @@ const DEFAULT_SETTINGS = {
   cavemanLevel: "full",
   ponytailEnabled: false,
   ponytailLevel: "full",
-  automationBrowser: "google-chrome",
+  automationBrowser: "camofox",
   proxyScraperEnabled: false,
   proxyScraperRunOnStartup: false,
   proxyScraperIntervalMinutes: 60,

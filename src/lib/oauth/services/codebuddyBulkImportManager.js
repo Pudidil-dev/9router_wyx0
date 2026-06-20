@@ -1,19 +1,27 @@
+/**
+ * CodeBuddyBulkImportManager — CodeBuddy-specific bulk import automation.
+ *
+ * Handles: Device code OAuth flow → Google login → token polling →
+ * API key creation → cookie capture → save connection.
+ * CodeBuddy uses device code flow with additional backend session setup.
+ */
 import {
-  KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY,
-  KIRO_BULK_IMPORT_MAX_CONCURRENCY,
-  KIRO_BULK_IMPORT_MIN_CONCURRENCY,
-  KiroBulkImportManager,
-  buildLookupResponse,
+  BaseBulkImportManager,
   createFreshContext,
-  parseKiroBulkAccounts,
-} from "./kiroBulkImportManager.js";
+  parseBulkAccounts,
+  buildLookupResponse,
+  nowIso,
+  DEFAULT_CONCURRENCY,
+  MIN_CONCURRENCY,
+  MAX_CONCURRENCY,
+} from "./automation/baseBulkImportManager.js";
 import {
   runGoogleAccountAutomation,
   handleCodeBuddyRegionPage,
   handleProviderOnboarding,
   handleCodeBuddyStartedAuthorization,
   isProviderPage,
-} from "./kiroGoogleAutomation.js";
+} from "./automation/googleOAuth.js";
 
 const CODEBUDDY_PROVIDER_ID = "codebuddy";
 const CODEBUDDY_LABEL = "CodeBuddy";
@@ -27,6 +35,12 @@ const CODEBUDDY_CONSOLE_ACCOUNTS_ENDPOINT = `${CODEBUDDY_BASE_URL}/console/accou
 const CODEBUDDY_API_KEYS_ENDPOINT = `${CODEBUDDY_BASE_URL}/console/api/client/v1/api-keys`;
 const CODEBUDDY_TRIAL_ENDPOINT = `${CODEBUDDY_BASE_URL}/billing/ide/trial`;
 const CODEBUDDY_DEFAULT_USER_ENTERPRISE_ID = "personal-edition-user-id";
+
+export const CODEBUDDY_BULK_IMPORT_DEFAULT_CONCURRENCY = DEFAULT_CONCURRENCY;
+export const CODEBUDDY_BULK_IMPORT_MIN_CONCURRENCY = MIN_CONCURRENCY;
+export const CODEBUDDY_BULK_IMPORT_MAX_CONCURRENCY = MAX_CONCURRENCY;
+
+// ── Utilities ──────────────────────────────────────────────────────────────────
 
 function wait(ms, signal) {
   if (signal?.aborted) return Promise.resolve();
@@ -55,6 +69,8 @@ function normalizeCodeBuddyAuthUrl(rawUrl, state) {
   if (effectiveState) normalized.searchParams.set("state", effectiveState);
   return normalized.toString();
 }
+
+// ── Connection & Token Helpers ─────────────────────────────────────────────────
 
 async function defaultSaveCodeBuddyConnection({ tokens, email }) {
   const { createProviderConnection } = await import("../../../models/index.js");
@@ -95,7 +111,6 @@ async function defaultSaveCodeBuddyConnection({ tokens, email }) {
   }
 
   const connection = await createProviderConnection(connectionPayload);
-
   return { connection };
 }
 
@@ -108,6 +123,8 @@ async function defaultPollForToken(providerId, deviceCode) {
   const { pollForToken } = await import("../providers.js");
   return pollForToken(providerId, deviceCode);
 }
+
+// ── Cookie Capture ─────────────────────────────────────────────────────────────
 
 async function captureCodeBuddyWebCookie(context) {
   if (!context?.cookies) {
@@ -122,8 +139,7 @@ async function captureCodeBuddyWebCookie(context) {
     const usefulCookies = cookies
       .filter((cookie) => {
         const domain = String(cookie.domain || "").replace(/^\./, "").toLowerCase();
-        return CODEBUDDY_COOKIE_DOMAINS.has(domain)
-          || domain.endsWith(".codebuddy.ai");
+        return CODEBUDDY_COOKIE_DOMAINS.has(domain) || domain.endsWith(".codebuddy.ai");
       })
       .filter((cookie) => cookie.name && cookie.value)
       .sort((left, right) => String(left.name).localeCompare(String(right.name)));
@@ -148,13 +164,10 @@ async function captureCodeBuddyWebCookie(context) {
 async function attachCodeBuddyWebCookie(context, tokens = {}) {
   const webCookie = await captureCodeBuddyWebCookie(context);
   if (!webCookie) return tokens;
-
-  return {
-    ...tokens,
-    webCookie,
-    webCookieCapturedAt: new Date().toISOString(),
-  };
+  return { ...tokens, webCookie, webCookieCapturedAt: new Date().toISOString() };
 }
+
+// ── API Key Creation ───────────────────────────────────────────────────────────
 
 function createCodeBuddyApiKeyName() {
   const suffix = Math.floor(Math.random() * 900000) + 100000;
@@ -173,11 +186,7 @@ async function codeBuddyRequestViaPage(page, method, url, body = null) {
           Accept: "application/json, text/plain, */*",
           "X-Requested-With": "XMLHttpRequest",
         };
-        const init = {
-          method,
-          credentials: "include",
-          headers,
-        };
+        const init = { method, credentials: "include", headers };
         if (body !== null) {
           headers["Content-Type"] = "application/json";
           init.body = JSON.stringify(body);
@@ -185,21 +194,13 @@ async function codeBuddyRequestViaPage(page, method, url, body = null) {
         const response = await fetch(url, init);
         const text = await response.text();
         let json = null;
-        try {
-          json = text ? JSON.parse(text) : null;
-        } catch {
-          json = null;
-        }
+        try { json = text ? JSON.parse(text) : null; } catch { json = null; }
         return { status: response.status, text, json };
       } catch (error) {
         return { status: 0, text: String(error?.message || error), json: null };
       }
     },
-    {
-      url,
-      method: String(method || "GET").toUpperCase(),
-      body,
-    }
+    { url, method: String(method || "GET").toUpperCase(), body }
   );
 
   return {
@@ -237,7 +238,6 @@ async function prepareCodeBuddyBackendSession(page) {
   }
 
   await codeBuddyRequestViaPage(page, "POST", CODEBUDDY_TRIAL_ENDPOINT).catch(() => null);
-
   return identity;
 }
 
@@ -258,7 +258,6 @@ async function createCodeBuddyApiKeyViaPage(page, userEnterpriseId = CODEBUDDY_D
   if (!apiKey) {
     throw new Error("CodeBuddy API key response did not include data.key");
   }
-
   return apiKey;
 }
 
@@ -282,6 +281,8 @@ async function defaultCreateCodeBuddyApiKeyTokens({ page, tokens = {}, onStep })
     },
   };
 }
+
+// ── Token Polling ──────────────────────────────────────────────────────────────
 
 function createCodeBuddyPollPromise({
   deviceCode,
@@ -308,19 +309,12 @@ function createCodeBuddyPollPromise({
       }
 
       const result = await pollToken(CODEBUDDY_PROVIDER_ID, deviceCode);
-      if (result.success) {
-        return {
-          tokens: result.tokens,
-        };
-      }
+      if (result.success) return { tokens: result.tokens };
 
       if (!result.pending && result.error !== "authorization_pending" && result.error !== "slow_down") {
         if (result.error === "request_failed" && transientErrors < maxTransientErrors) {
           transientErrors += 1;
-          onStep?.(
-            "codebuddy_poll_retry",
-            `CodeBuddy token poll failed temporarily (${transientErrors}/${maxTransientErrors}); retrying`
-          );
+          onStep?.("codebuddy_poll_retry", `CodeBuddy token poll failed temporarily (${transientErrors}/${maxTransientErrors}); retrying`);
           await wait(pollIntervalMs, signal);
           continue;
         }
@@ -333,6 +327,8 @@ function createCodeBuddyPollPromise({
     throw new Error("Timed out waiting for CodeBuddy OAuth token");
   })();
 }
+
+// ── Registration Completion ────────────────────────────────────────────────────
 
 const CODEBUDDY_DASHBOARD_URL = "https://www.codebuddy.ai/home";
 const CODEBUDDY_COMPLETE_REGISTER_TIMEOUT_MS = 30_000;
@@ -348,50 +344,33 @@ async function completeCodeBuddyRegistration(page, onStep) {
 
     const startedAt = Date.now();
     let handledAnything = false;
-    let loopCount = 0;
 
     while (Date.now() - startedAt < CODEBUDDY_COMPLETE_REGISTER_TIMEOUT_MS) {
-      loopCount += 1;
       if (!isProviderPage(page)) break;
 
       const handledStarted = await handleCodeBuddyStartedAuthorization(page, reportStep);
-      if (handledStarted) {
-        handledAnything = true;
-        await page.waitForTimeout(CODEBUDDY_COMPLETE_REGISTER_POLL_MS);
-        continue;
-      }
+      if (handledStarted) { handledAnything = true; await page.waitForTimeout(CODEBUDDY_COMPLETE_REGISTER_POLL_MS); continue; }
 
       const handledRegion = await handleCodeBuddyRegionPage(page, reportStep);
-      if (handledRegion) {
-        handledAnything = true;
-        await page.waitForTimeout(CODEBUDDY_COMPLETE_REGISTER_POLL_MS);
-        continue;
-      }
+      if (handledRegion) { handledAnything = true; await page.waitForTimeout(CODEBUDDY_COMPLETE_REGISTER_POLL_MS); continue; }
 
       const handledOnboarding = await handleProviderOnboarding(page, reportStep, CODEBUDDY_LABEL);
-      if (handledOnboarding) {
-        handledAnything = true;
-        await page.waitForTimeout(CODEBUDDY_COMPLETE_REGISTER_POLL_MS);
-        continue;
-      }
+      if (handledOnboarding) { handledAnything = true; await page.waitForTimeout(CODEBUDDY_COMPLETE_REGISTER_POLL_MS); continue; }
 
-      // Nothing left to handle — page is stable
       break;
     }
 
     if (handledAnything) {
       reportStep("complete_register_done", "CodeBuddy registration completed, establishing session");
     }
-
-    // Note: CodeBuddy web console uses Keycloak auth which is separate from the
-    // CLI OAuth flow. Web session cookies for quota tracking cannot be obtained
-    // from the OAuth token alone. Users can attach a quota cookie manually via
-    // Dashboard -> Providers -> CodeBuddy -> Quota Cookie.
   } catch (error) {
     reportStep("complete_register_skipped", `Could not complete registration: ${error.message}`);
   }
 }
-export class CodeBuddyBulkImportManager extends KiroBulkImportManager {
+
+// ── Manager Class ──────────────────────────────────────────────────────────────
+
+export class CodeBuddyBulkImportManager extends BaseBulkImportManager {
   constructor({
     browserLauncher,
     googleAutomation = runGoogleAccountAutomation,
@@ -402,10 +381,13 @@ export class CodeBuddyBulkImportManager extends KiroBulkImportManager {
     pollIntervalMs = CODEBUDDY_POLL_INTERVAL_MS,
   } = {}) {
     super({
-      browserLauncher,
-      googleAutomation,
       storageName: "codebuddy-bulk-import",
+      providerLabel: CODEBUDDY_LABEL,
+      browserLauncher,
+      defaultConcurrency: CODEBUDDY_BULK_IMPORT_DEFAULT_CONCURRENCY,
     });
+
+    this.googleAutomation = googleAutomation;
     this.requestDeviceCode = requestDeviceCodeFn;
     this.pollToken = pollToken;
     this.saveConnection = saveConnection;
@@ -585,12 +567,7 @@ export class CodeBuddyBulkImportManager extends KiroBulkImportManager {
       }
 
       if (automationResult.status === "needs_manual") {
-        account.manualSession = {
-          context,
-          page,
-          opened: false,
-          openedAt: null,
-        };
+        account.manualSession = { context, page, opened: false, openedAt: null };
         this.setAccountStep(account, "awaiting_manual", "Waiting for manual completion in the browser session");
         this.finalizeAccount(account, "needs_manual", {
           error: automationResult.error,
@@ -635,11 +612,13 @@ export class CodeBuddyBulkImportManager extends KiroBulkImportManager {
   }
 }
 
+export function parseCodeBuddyBulkAccounts(accounts = []) {
+  return parseBulkAccounts(accounts, CODEBUDDY_LABEL);
+}
+
 function getSingletonStore() {
   if (!globalThis.__codeBuddyBulkImportSingleton) {
-    globalThis.__codeBuddyBulkImportSingleton = {
-      manager: new CodeBuddyBulkImportManager(),
-    };
+    globalThis.__codeBuddyBulkImportSingleton = { manager: new CodeBuddyBulkImportManager() };
   }
   return globalThis.__codeBuddyBulkImportSingleton;
 }
@@ -648,10 +627,4 @@ export function getCodeBuddyBulkImportManager() {
   return getSingletonStore().manager;
 }
 
-export {
-  buildLookupResponse,
-  KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY as CODEBUDDY_BULK_IMPORT_DEFAULT_CONCURRENCY,
-  KIRO_BULK_IMPORT_MAX_CONCURRENCY as CODEBUDDY_BULK_IMPORT_MAX_CONCURRENCY,
-  KIRO_BULK_IMPORT_MIN_CONCURRENCY as CODEBUDDY_BULK_IMPORT_MIN_CONCURRENCY,
-  parseKiroBulkAccounts as parseCodeBuddyBulkAccounts,
-};
+export { buildLookupResponse };

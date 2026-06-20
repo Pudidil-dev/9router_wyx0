@@ -16,6 +16,8 @@
 - Treat provider credentials, cookies, API keys, OAuth tokens, and request logs as sensitive.
 - Preserve Next.js server/client boundaries; add `"use client"` only where browser state or APIs require it.
 - Keep dashboard behavior aligned with the corresponding API contract and shared store.
+- Keep provider-detail bulk connection actions scoped to the selected connection IDs, and require confirmation before destructive bulk actions.
+- Present Camoufox as the single automation runtime in dashboard flows; do not expose browser-runtime selection controls.
 - Keep `/api/system/capacity` limited to coarse server CPU/RAM capacity data for local worker recommendations; do not expose sensitive host details.
 - Do not silently change `/v1/*` compatibility semantics without focused regression tests.
 

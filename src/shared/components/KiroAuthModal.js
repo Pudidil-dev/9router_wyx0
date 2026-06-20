@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
-import { AUTOMATION_BROWSER_CAMOFOX, AUTOMATION_BROWSER_OPTIONS, DEFAULT_AUTOMATION_BROWSER, getAutomationBrowserOption, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
+import { DEFAULT_AUTOMATION_BROWSER } from "@/shared/constants/automationBrowsers";
 import { useNotificationStore } from "@/store/notificationStore";
 
 const DEFAULT_CONCURRENCY = 4;
@@ -196,7 +196,7 @@ export default function KiroAuthModal({
   const [bulkText, setBulkText] = useState("");
   const fallbackRecommendation = useMemo(() => getRecommendedConcurrency(), []);
   const [concurrency, setConcurrency] = useState(() => String(getRecommendedConcurrency().value));
-  const [browserChoice, setBrowserChoice] = useState(DEFAULT_AUTOMATION_BROWSER);
+  const browserChoice = DEFAULT_AUTOMATION_BROWSER;
   const [bulkResult, setBulkResult] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
   const [apiKey, setApiKey] = useState("");
@@ -217,7 +217,6 @@ export default function KiroAuthModal({
   const effectiveImportMode = effectiveSelectedMethod === "import" && resumeJobId && !selectedMethod
     ? "bulk-account"
     : importMode;
-  const selectedBrowserOption = useMemo(() => getAutomationBrowserOption(browserChoice), [browserChoice]);
   const [recommendedConcurrency, setRecommendedConcurrency] = useState(fallbackRecommendation);
 
   useEffect(() => {
@@ -240,41 +239,6 @@ export default function KiroAuthModal({
     void loadCapacity();
     return () => { cancelled = true; };
   }, [fallbackRecommendation]);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-
-    let cancelled = false;
-    const loadBrowserSetting = async () => {
-      try {
-        const res = await fetch("/api/settings", { cache: "no-store" });
-        if (!res.ok) return;
-        const settings = await res.json();
-        if (!cancelled) setBrowserChoice(normalizeAutomationBrowser(settings?.automationBrowser));
-      } catch {
-        if (!cancelled) setBrowserChoice(DEFAULT_AUTOMATION_BROWSER);
-      }
-    };
-
-    void loadBrowserSetting();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen]);
-
-  const handleBrowserChange = async (value) => {
-    const next = normalizeAutomationBrowser(value);
-    setBrowserChoice(next);
-    try {
-      await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ automationBrowser: next }),
-      });
-    } catch {
-      // Keep local selection; start request still sends the selected browser.
-    }
-  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1186,29 +1150,12 @@ export default function KiroAuthModal({
                       </div>
                     </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium">Automation Browser</label>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {AUTOMATION_BROWSER_OPTIONS.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            onClick={() => handleBrowserChange(option.id)}
-                            className={`rounded-lg border p-3 text-left transition-colors ${browserChoice === option.id ? "border-primary bg-primary/10" : "border-border bg-background hover:border-primary/50"}`}
-                          >
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium">{option.label}</span>
-                              <span className="rounded-full bg-sidebar px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-muted">{option.badge}</span>
-                            </div>
-                            <p className="text-xs text-text-muted">{option.description}</p>
-                          </button>
-                        ))}
+                    <div className="rounded-lg border border-border bg-background p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">Camoufox automation</span>
+                        <span className="rounded-full bg-sidebar px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-muted">Default</span>
                       </div>
-                      {browserChoice === AUTOMATION_BROWSER_CAMOFOX && selectedBrowserOption.warning && (
-                        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-                          {selectedBrowserOption.warning}
-                        </p>
-                      )}
+                      <p className="mt-1 text-xs text-text-muted">Runs isolated browser workers in the background.</p>
                     </div>
                   </>
                 )}

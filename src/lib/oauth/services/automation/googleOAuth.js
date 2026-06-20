@@ -1281,72 +1281,102 @@ async function handleProviderLoginGate(page, reportStep) {
 }
 
 export function createKiroCallbackMonitor(context, page, timeoutMs = DEFAULT_MANUAL_TIMEOUT_MS) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const trackedPages = new Set();
-    const cleanupFns = [];
-
-    const settle = (result, error = null) => {
-      if (settled) return;
-      settled = true;
-      for (const fn of cleanupFns) fn();
-      if (error) reject(error);
-      else resolve(result);
-    };
-
-    const registerPage = (trackedPage) => {
-      if (!trackedPage || trackedPages.has(trackedPage)) return;
-      trackedPages.add(trackedPage);
-
-      const onFrame = (frame) => {
-        const parsed = parseCallbackUrl(frame?.url?.() || "");
-        if (parsed) settle(parsed);
-      };
-
-      const onRequest = (request) => {
-        const parsed = parseCallbackUrl(request?.url?.() || "");
-        if (parsed) settle(parsed);
-      };
-
-      const onRequestFailed = (request) => {
-        const parsed = parseCallbackUrl(request?.url?.() || "");
-        if (parsed) settle(parsed);
-      };
-
-      const onLoadState = () => {
-        const parsed = parseCallbackUrl(trackedPage.url?.() || "");
-        if (parsed) settle(parsed);
-      };
-
-      trackedPage.on("framenavigated", onFrame);
-      trackedPage.on("request", onRequest);
-      trackedPage.on("requestfailed", onRequestFailed);
-      trackedPage.on("domcontentloaded", onLoadState);
-      trackedPage.on("load", onLoadState);
-
-      cleanupFns.push(() => {
-        trackedPage.off("framenavigated", onFrame);
-        trackedPage.off("request", onRequest);
-        trackedPage.off("requestfailed", onRequestFailed);
-        trackedPage.off("domcontentloaded", onLoadState);
-        trackedPage.off("load", onLoadState);
-      });
-
-      const current = parseCallbackUrl(trackedPage.url?.() || "");
-      if (current) settle(current);
-    };
-
-    const onPage = (newPage) => registerPage(newPage);
-    context.on("page", onPage);
-    cleanupFns.push(() => context.off("page", onPage));
-
-    registerPage(page);
-
-    const timeout = setTimeout(() => {
-      settle(null, new Error("Timed out waiting for Kiro callback"));
-    }, timeoutMs);
-    cleanupFns.push(() => clearTimeout(timeout));
+  let resolveCallback;
+  let rejectCallback;
+  let settled = false;
+  const trackedPages = new Set();
+  const cleanupFns = [];
+  const callbackPromise = new Promise((resolve, reject) => {
+    resolveCallback = resolve;
+    rejectCallback = reject;
   });
+
+  const settle = (result, error = null) => {
+    if (settled) return;
+    settled = true;
+    for (const fn of cleanupFns) fn();
+    if (error) rejectCallback(error);
+    else resolveCallback(result);
+  };
+
+  const registerPage = (trackedPage) => {
+    if (!trackedPage || trackedPages.has(trackedPage)) return;
+    trackedPages.add(trackedPage);
+
+    const onFrame = (frame) => {
+      const parsed = parseCallbackUrl(frame?.url?.() || "");
+      if (parsed) settle(parsed);
+    };
+
+    const onRequest = (request) => {
+      const parsed = parseCallbackUrl(request?.url?.() || "");
+      if (parsed) settle(parsed);
+    };
+
+    const onRequestFailed = (request) => {
+      const parsed = parseCallbackUrl(request?.url?.() || "");
+      if (parsed) settle(parsed);
+    };
+
+    const onResponse = async (response) => {
+      try {
+        const headers = typeof response?.allHeaders === "function"
+          ? await response.allHeaders()
+          : await response?.headers?.();
+        const parsed = parseCallbackUrl(headers?.location || headers?.Location || "");
+        if (parsed) settle(parsed);
+      } catch {
+        // Passive request and navigation listeners remain available as fallback.
+      }
+    };
+
+    const onLoadState = () => {
+      const parsed = parseCallbackUrl(trackedPage.url?.() || "");
+      if (parsed) settle(parsed);
+    };
+
+    const onClose = () => {
+      settle(null, new Error("Kiro callback browser closed"));
+    };
+
+    trackedPage.on("framenavigated", onFrame);
+    trackedPage.on("request", onRequest);
+    trackedPage.on("requestfailed", onRequestFailed);
+    trackedPage.on("response", onResponse);
+    trackedPage.on("domcontentloaded", onLoadState);
+    trackedPage.on("load", onLoadState);
+    trackedPage.on("close", onClose);
+
+    cleanupFns.push(() => {
+      trackedPage.off("framenavigated", onFrame);
+      trackedPage.off("request", onRequest);
+      trackedPage.off("requestfailed", onRequestFailed);
+      trackedPage.off("response", onResponse);
+      trackedPage.off("domcontentloaded", onLoadState);
+      trackedPage.off("load", onLoadState);
+      trackedPage.off("close", onClose);
+    });
+
+    const current = parseCallbackUrl(trackedPage.url?.() || "");
+    if (current) settle(current);
+  };
+
+  const onPage = (newPage) => registerPage(newPage);
+  context.on("page", onPage);
+  cleanupFns.push(() => context.off("page", onPage));
+
+  const onContextClose = () => settle(null, new Error("Kiro callback browser closed"));
+  context.on("close", onContextClose);
+  cleanupFns.push(() => context.off("close", onContextClose));
+
+  registerPage(page);
+
+  const timeout = setTimeout(() => {
+    settle(null, new Error("Timed out waiting for Kiro callback"));
+  }, timeoutMs);
+  cleanupFns.push(() => clearTimeout(timeout));
+
+  return callbackPromise;
 }
 
 export async function runGoogleAccountAutomation({
@@ -1364,10 +1394,12 @@ export async function runGoogleAccountAutomation({
   allowProviderRestrictedBypass = false,
   restrictedBypassStep = "provider_restricted_bypass",
   restrictedBypassMessage = "Provider restricted page detected; continuing with existing browser session",
+  waitForKiroCallbackPage = false,
   onStep,
 }) {
   const startTime = Date.now();
   let qoderDeviceAuthReopened = false;
+  let kiroCallbackWaitReported = false;
   const reportStep = (step, message) => {
     onStep?.(step, message);
   };
@@ -1401,6 +1433,16 @@ export async function runGoogleAccountAutomation({
         status: "failed_timeout",
         error: successResult.error?.message || `Timed out waiting for ${serviceLabel} authorization`,
       };
+    }
+
+    const currentUrl = page.url?.() || "";
+    if (waitForKiroCallbackPage && (/\/accounts\/SetSID/i.test(currentUrl) || /\/accounts\/set/i.test(currentUrl))) {
+      if (!kiroCallbackWaitReported) {
+        kiroCallbackWaitReported = true;
+        reportStep("waiting_for_kiro_callback", "Google login completed; waiting for the Kiro callback");
+      }
+      await page.waitForTimeout(500);
+      continue;
     }
 
     const handledCredentialInput = await handleGoogleCredentialInputs(page, email, password, reportStep);
@@ -1538,6 +1580,7 @@ export async function runKiroGoogleAutomation({
     openingMessage: "Opening Google OAuth page",
     successStep: "kiro_callback_received",
     successMessage: "Kiro callback received",
+    waitForKiroCallbackPage: true,
     onStep,
   });
 }

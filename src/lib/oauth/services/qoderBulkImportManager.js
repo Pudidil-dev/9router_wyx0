@@ -1,19 +1,31 @@
+/**
+ * QoderBulkImportManager — Qoder-specific bulk import automation.
+ *
+ * Handles: Device code OAuth flow → Google login → token polling → save connection.
+ * Qoder uses device code flow (not callback-based like Kiro).
+ */
 import {
-  KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY,
-  KIRO_BULK_IMPORT_MAX_CONCURRENCY,
-  KIRO_BULK_IMPORT_MIN_CONCURRENCY,
-  KiroBulkImportManager,
-  buildLookupResponse,
+  BaseBulkImportManager,
   createFreshContext,
-  parseKiroBulkAccounts,
-} from "./kiroBulkImportManager.js";
-import { runGoogleAccountAutomation } from "./kiroGoogleAutomation.js";
+  parseBulkAccounts,
+  buildLookupResponse,
+  nowIso,
+  clampConcurrency,
+  DEFAULT_CONCURRENCY,
+  MIN_CONCURRENCY,
+  MAX_CONCURRENCY,
+} from "./automation/baseBulkImportManager.js";
+import { runGoogleAccountAutomation } from "./automation/googleOAuth.js";
 
 const QODER_PROVIDER_ID = "qoder";
 const QODER_LABEL = "Qoder";
 const QODER_POLL_TIMEOUT_MS = 5 * 60_000;
 const QODER_POLL_INTERVAL_MS = 2_000;
 const QODER_MAX_TRANSIENT_POLL_ERRORS = 6;
+
+export const QODER_BULK_IMPORT_DEFAULT_CONCURRENCY = DEFAULT_CONCURRENCY;
+export const QODER_BULK_IMPORT_MIN_CONCURRENCY = MIN_CONCURRENCY;
+export const QODER_BULK_IMPORT_MAX_CONCURRENCY = MAX_CONCURRENCY;
 
 function wait(ms, signal) {
   if (signal?.aborted) return Promise.resolve();
@@ -81,17 +93,18 @@ function createQoderPollPromise({
   pollIntervalMs = QODER_POLL_INTERVAL_MS,
   maxTransientErrors = QODER_MAX_TRANSIENT_POLL_ERRORS,
 }) {
-  return (async () => {
-    const startedAt = Date.now();
-    let lastStepAt = 0;
-    let transientErrors = 0;
+  let transientErrors = 0;
+  let lastStepAt = Date.now();
 
-    while (Date.now() - startedAt < timeoutMs) {
+  return (async () => {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
       if (signal?.aborted) {
-        throw new Error("Qoder OAuth polling cancelled");
+        throw new Error("Qoder device token polling was aborted");
       }
 
-      if (Date.now() - lastStepAt > pollIntervalMs - 100) {
+      if (Date.now() - lastStepAt > 30_000) {
         onStep?.("polling_qoder_token", "Waiting for Qoder device token");
         lastStepAt = Date.now();
       }
@@ -121,7 +134,7 @@ function createQoderPollPromise({
   })();
 }
 
-export class QoderBulkImportManager extends KiroBulkImportManager {
+export class QoderBulkImportManager extends BaseBulkImportManager {
   constructor({
     browserLauncher,
     googleAutomation = runGoogleAccountAutomation,
@@ -131,10 +144,13 @@ export class QoderBulkImportManager extends KiroBulkImportManager {
     pollIntervalMs = QODER_POLL_INTERVAL_MS,
   } = {}) {
     super({
-      browserLauncher,
-      googleAutomation,
       storageName: "qoder-bulk-import",
+      providerLabel: QODER_LABEL,
+      browserLauncher,
+      defaultConcurrency: QODER_BULK_IMPORT_DEFAULT_CONCURRENCY,
     });
+
+    this.googleAutomation = googleAutomation;
     this.requestDeviceCode = requestDeviceCodeFn;
     this.pollToken = pollToken;
     this.saveConnection = saveConnection;
@@ -320,6 +336,10 @@ export class QoderBulkImportManager extends KiroBulkImportManager {
   }
 }
 
+export function parseQoderBulkAccounts(accounts = []) {
+  return parseBulkAccounts(accounts, QODER_LABEL);
+}
+
 function getSingletonStore() {
   if (!globalThis.__qoderBulkImportSingleton) {
     globalThis.__qoderBulkImportSingleton = {
@@ -335,8 +355,4 @@ export function getQoderBulkImportManager() {
 
 export {
   buildLookupResponse,
-  KIRO_BULK_IMPORT_DEFAULT_CONCURRENCY as QODER_BULK_IMPORT_DEFAULT_CONCURRENCY,
-  KIRO_BULK_IMPORT_MAX_CONCURRENCY as QODER_BULK_IMPORT_MAX_CONCURRENCY,
-  KIRO_BULK_IMPORT_MIN_CONCURRENCY as QODER_BULK_IMPORT_MIN_CONCURRENCY,
-  parseKiroBulkAccounts as parseQoderBulkAccounts,
 };

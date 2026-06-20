@@ -34,7 +34,7 @@
     "cli:pack": "npm --prefix cli run pack:cli",
     "cli:publish": "npm --prefix cli run publish:cli",
     "prepack": "echo 'Ensure cli/app is built before publishing: node cli/scripts/build-cli.js'",
-    "postinstall": "node cli/hooks/postinstall.js",
+    "postinstall": "node cli/hooks/postinstall.js && camoufox-js fetch",
     "wyx": "node ./scripts/start-wyx-fast.cjs"
   },
   "dependencies": {
@@ -46,6 +46,7 @@
     "@next/third-parties": "^16.2.9",
     "@xyflow/react": "^12.10.1",
     "bcryptjs": "^3.0.3",
+    "camoufox-js": "^0.11.1",
     "cheerio": "^1.2.0",
     "confbox": "^0.2.4",
     "express": "^5.2.1",
@@ -60,7 +61,7 @@
     "node-machine-id": "^1.1.12",
     "open": "^11.0.0",
     "ora": "^9.1.0",
-    "playwright": "^1.54.2",
+    "playwright-core": "1.53.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-is": "^16.13.1",
@@ -85,7 +86,7 @@
     "tailwindcss": "^4"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "keywords": [
     "ai",

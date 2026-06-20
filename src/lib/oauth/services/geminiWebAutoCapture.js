@@ -1,5 +1,5 @@
 /**
- * Gemini Web auto-capture: open a visible Playwright window pointed at
+ * Gemini Web auto-capture: open a visible Camoufox window pointed at
  * gemini.google.com, let the user log in, then extract the 6 required
  * cookies + the SNlM0e XSRF token without the user touching DevTools.
  *
@@ -14,11 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import {
-  AUTOMATION_BROWSER_CHROMIUM,
-  DEFAULT_AUTOMATION_BROWSER,
-  normalizeAutomationBrowser,
-} from "@/shared/constants/automationBrowsers";
+import { DEFAULT_AUTOMATION_BROWSER, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
 import { createAutomationBrowserLauncher } from "./automationBrowserLauncher.js";
 
 const REQUIRED_COOKIES = ["SID", "HSID", "SSID", "APISID", "SAPISID", "__Secure-1PSID"];
@@ -191,4 +187,4 @@ export async function cancelGeminiWebAutoCapture(sessionId) {
 }
 
 // Test-only export
-export const _internal = { sessions, REQUIRED_COOKIES, formatCookieString, AUTOMATION_BROWSER_CHROMIUM };
+export const _internal = { sessions, REQUIRED_COOKIES, formatCookieString };
