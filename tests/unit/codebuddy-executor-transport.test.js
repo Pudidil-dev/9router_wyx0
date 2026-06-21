@@ -32,6 +32,7 @@ describe("CodeBuddy model mapping", () => {
     expect(getModelUpstreamId("cb", "claude-opus-4-7")).toBe("claude-opus-4.7-1m");
   });
   it("registers the CodeBuddy CN catalog and capabilities", () => {
+    expect(isValidModel("cbcn", "glm-5.2")).toBe(true);
     expect(isValidModel("codebuddy-cn", "glm-5.2")).toBe(true);
     expect(isValidModel("codebuddy-cn", "deepseek-v4-flash")).toBe(true);
     expect(isValidModel("codebuddy-cn", "deepseek-v3-2-volc")).toBe(true);

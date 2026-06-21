@@ -1,5 +1,7 @@
 export default {
   id: "codebuddy-cn",
+  alias: "cbcn",
+  uiAlias: "cbcn",
   hidden: false,
   priority: 26,
   display: {
