@@ -14,13 +14,13 @@ Make the CodeBuddy CN automation follow the reconstructed `enow-reverse` lifecyc
 - Follow the recovered login choices: select the intended login route, avoid unrelated WeChat/QQ paths, and support the recovered HK 5sim route when automatic SMS registration is selected.
 - After credentials are visible, determine whether the account needs the recovered CodeBuddy CN activation flow.
 - Use the browser activation path first, including the recovered invite/free-tier controls, then use the recovered API activation endpoint as a fallback when its request shape is available.
-- Persist a distinct activation/gateway outcome. A gateway authentication block is recorded as the recovered probation state instead of being mislabeled as a successful, usable connection.
+- Persist activation and gateway outcomes with the saved credentials. Match enow's best-effort behavior: activation failures become `activation_skipped`, and a gateway authentication block becomes persisted probation metadata without discarding otherwise valid credentials.
 - Create an API key only after activation and gateway checks succeed, then save the connection and refresh credit metadata.
 
 ## Boundary Conditions
 
 - Preserve cancellation and worker cleanup; no late browser callback may save a cancelled account.
-- Keep explicit, actionable terminal states for upstream pages that cannot be completed programmatically, rather than incorrectly reporting success.
+- Keep explicit progress and metadata for upstream activation or gateway checks that cannot be completed programmatically, while preserving enow's successful credential result.
 - Do not alter the global `codebuddy` provider or unrelated pending CodeBuddy CN work.
 - Use offline tests for state transitions and request construction; live upstream behavior remains separately validated with a user-controlled test account.
 
