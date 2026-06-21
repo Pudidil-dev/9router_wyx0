@@ -1126,193 +1126,6 @@ export default function APIPageClient({ machineId }) {
         )}
       </Card>
 
-      {/* Token Saver (RTK + Caveman + Ponytail) */}
-      <Card id="rtk">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary">bolt</span>
-            Token Saver
-          </h2>
-        </div>
-        <div className="flex items-center justify-between pt-2 pb-4 border-b border-border gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium">
-              Compress tool output{" "}
-              <a
-                href="https://github.com/rtk-ai/rtk"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-normal text-primary underline hover:opacity-80"
-              >
-                (RTK)
-              </a>
-            </p>
-            <p className="text-sm text-text-muted">
-              git/grep/ls/tree/logs → 60-90% fewer input tokens
-            </p>
-          </div>
-          <Toggle
-            checked={rtkEnabled}
-            onChange={() => handleRtkEnabled(!rtkEnabled)}
-          />
-        </div>
-        
-        {/* Headroom */}
-        <div className="flex items-center justify-between pt-4 pb-4 border-b border-border gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-medium">
-                Compress prompts{" "}
-                <a
-                  href="https://github.com/HeadroomAI/headroom"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-normal text-primary underline hover:opacity-80"
-                >
-                  (Headroom)
-                </a>
-              </p>
-              {headroomStatus.loading ? (
-                <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-text-muted">
-                  Checking…
-                </span>
-              ) : headroomStatus.running ? (
-                <span className="text-xs px-2 py-0.5 rounded bg-success/20 text-success">
-                  Running
-                </span>
-              ) : headroomStatus.installed ? (
-                <span className="text-xs px-2 py-0.5 rounded bg-warning/20 text-warning">
-                  Stopped
-                </span>
-              ) : (
-                <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-text-muted">
-                  Not installed
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-text-muted mt-1">
-              Compress prompts via local proxy → 40-60% fewer input tokens
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {headroomStatus.installed && (
-              <button
-                onClick={() => {
-                  setShowHeadroomModal(true);
-                  checkHeadroomStatus();
-                }}
-                className="text-xs px-3 py-1.5 rounded border border-border text-text-main hover:bg-surface-2 transition-colors"
-              >
-                Setup
-              </button>
-            )}
-            <Toggle
-              checked={headroomEnabled && headroomStatus.running}
-              onChange={() => handleHeadroomToggle(!headroomEnabled)}
-              disabled={!headroomStatus.running}
-            />
-          </div>
-        </div>
-        
-        <div className="flex items-center justify-between pt-4 gap-4 flex-wrap">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium">
-              Compress LLM output{" "}
-              <a
-                href="https://github.com/JuliusBrussee/caveman"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-normal text-primary underline hover:opacity-80"
-              >
-                (Caveman)
-              </a>
-            </p>
-            <p className="text-sm text-text-muted">
-              Terse-style system prompt → ~65% fewer output tokens (up to 87%)
-            </p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            {cavemanEnabled && (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-1.5">
-                  {visibleCavemanLevels.map((lvl) => (
-                    <button
-                      key={lvl.id}
-                      onClick={() => handleCavemanLevel(lvl.id)}
-                      className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
-                        cavemanLevel === lvl.id
-                          ? "bg-primary text-white border-primary"
-                          : "bg-transparent border-border text-text-muted hover:bg-surface-2"
-                      }`}
-                      title={lvl.desc}
-                    >
-                      {lvl.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-primary">
-                  {CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel)?.desc}
-                </p>
-              </div>
-            )}
-            <Toggle
-              checked={cavemanEnabled}
-              onChange={() => handleCavemanEnabled(!cavemanEnabled)}
-            />
-          </div>
-        </div>
-        <div className="flex items-center justify-between pt-4 mt-4 border-t border-border gap-4 flex-wrap">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium flex items-center gap-2 flex-wrap">
-              <span>
-                Minimize code/output bloat{" "}
-                <a
-                  href="https://github.com/DietrichGebert/ponytail"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-normal text-primary underline hover:opacity-80"
-                >
-                  (Ponytail)
-                </a>
-              </span>
-              <ExperimentalBadge size="full" />
-            </p>
-            <p className="text-sm text-text-muted">
-              Injects a lazy-senior decision ladder so the model prefers native features, stdlib, existing dependencies, and the smallest correct implementation.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            {ponytailEnabled && (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-1.5">
-                  {PONYTAIL_LEVELS.map((lvl) => (
-                    <button
-                      key={lvl.id}
-                      onClick={() => handlePonytailLevel(lvl.id)}
-                      className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
-                        ponytailLevel === lvl.id
-                          ? "bg-primary text-white border-primary"
-                          : "bg-transparent border-border text-text-muted hover:bg-surface-2"
-                      }`}
-                      title={lvl.desc}
-                    >
-                      {lvl.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-primary">
-                  {PONYTAIL_LEVELS.find((lvl) => lvl.id === ponytailLevel)?.desc}
-                </p>
-              </div>
-            )}
-            <Toggle
-              checked={ponytailEnabled}
-              onChange={() => handlePonytailEnabled(!ponytailEnabled)}
-            />
-          </div>
-        </div>
-      </Card>
-
       {/* API Keys */}
       <Card id="require-api-key">
         <div className="flex items-center justify-between mb-4">
@@ -1424,6 +1237,191 @@ export default function APIPageClient({ machineId }) {
             ))}
           </div>
         )}
+      </Card>
+
+      {/* Token Saver (RTK + Caveman + Ponytail) */}
+      <Card id="rtk">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary">bolt</span>
+            Token Saver
+          </h2>
+        </div>
+        <div className="flex items-center justify-between pt-2 pb-4 border-b border-border gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              Compress tool output{" "}
+              <a
+                href="https://github.com/rtk-ai/rtk"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-primary underline hover:opacity-80"
+              >
+                (RTK)
+              </a>
+            </p>
+            <p className="text-sm text-text-muted">
+              git/grep/ls/tree/logs → 60-90% fewer input tokens
+            </p>
+          </div>
+          <Toggle
+            checked={rtkEnabled}
+            onChange={() => handleRtkEnabled(!rtkEnabled)}
+          />
+        </div>
+        
+        {/* Headroom */}
+        <div className="flex items-center justify-between pt-4 pb-4 border-b border-border gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-medium">
+                Compress context{" "}
+                <a
+                  href="https://github.com/HeadroomAI/headroom"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-normal text-primary underline hover:opacity-80"
+                >
+                  (Headroom)
+                </a>
+              </p>
+              {headroomStatus.loading ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-text-muted">
+                  Checking…
+                </span>
+              ) : headroomStatus.running ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-success/20 text-success">
+                  Running
+                </span>
+              ) : headroomStatus.installed ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-warning/20 text-warning">
+                  Stopped
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded bg-warning/20 text-warning">
+                  Not installed
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  setShowHeadroomModal(true);
+                  checkHeadroomStatus();
+                }}
+                className="text-xs font-normal text-primary underline hover:opacity-80"
+              >
+                Setup
+              </button>
+            </div>
+            <p className="text-sm text-text-muted mt-1">
+              Compress prompts via /v1/compress before routing to the model
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Toggle
+              checked={headroomEnabled && headroomStatus.running}
+              onChange={() => handleHeadroomToggle(!headroomEnabled)}
+              disabled={!headroomStatus.running}
+            />
+          </div>
+        </div>
+        
+        <div className="flex items-center justify-between pt-4 gap-4 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              Compress LLM output{" "}
+              <a
+                href="https://github.com/JuliusBrussee/caveman"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-primary underline hover:opacity-80"
+              >
+                (Caveman)
+              </a>
+            </p>
+            <p className="text-sm text-text-muted">
+              Terse-style system prompt → ~65% fewer output tokens (up to 87%)
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {cavemanEnabled && (
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1.5">
+                  {visibleCavemanLevels.map((lvl) => (
+                    <button
+                      key={lvl.id}
+                      onClick={() => handleCavemanLevel(lvl.id)}
+                      className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                        cavemanLevel === lvl.id
+                          ? "bg-primary text-white border-primary"
+                          : "bg-transparent border-border text-text-muted hover:bg-surface-2"
+                      }`}
+                      title={lvl.desc}
+                    >
+                      {lvl.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-primary">
+                  {CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel)?.desc}
+                </p>
+              </div>
+            )}
+            <Toggle
+              checked={cavemanEnabled}
+              onChange={() => handleCavemanEnabled(!cavemanEnabled)}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-between pt-4 mt-4 border-t border-border gap-4 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium flex items-center gap-2 flex-wrap">
+              <span>
+                Lazy senior dev{" "}
+                <a
+                  href="https://github.com/DietrichGebert/ponytail"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-normal text-primary underline hover:opacity-80"
+                >
+                  (Ponytail)
+                </a>
+              </span>
+              <ExperimentalBadge size="full" />
+            </p>
+            <p className="text-sm text-text-muted">
+              Bias the model toward minimal code: YAGNI, reuse stdlib, deletion over addition
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {ponytailEnabled && (
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1.5">
+                  {PONYTAIL_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl.id}
+                      onClick={() => handlePonytailLevel(lvl.id)}
+                      className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                        ponytailLevel === lvl.id
+                          ? "bg-primary text-white border-primary"
+                          : "bg-transparent border-border text-text-muted hover:bg-surface-2"
+                      }`}
+                      title={lvl.desc}
+                    >
+                      {lvl.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-primary">
+                  {PONYTAIL_LEVELS.find((lvl) => lvl.id === ponytailLevel)?.desc}
+                </p>
+              </div>
+            )}
+            <Toggle
+              checked={ponytailEnabled}
+              onChange={() => handlePonytailEnabled(!ponytailEnabled)}
+            />
+          </div>
+        </div>
       </Card>
 
       {/* Add Key Modal */}
@@ -1645,9 +1643,22 @@ export default function APIPageClient({ machineId }) {
       <Modal
         isOpen={showHeadroomModal}
         onClose={() => setShowHeadroomModal(false)}
-        title="Headroom Setup"
+        title="Setup Headroom"
       >
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <span className="text-base font-medium text-text-main">Status</span>
+            <span className={`text-base font-medium ${headroomStatus.running ? "text-success" : "text-warning"}`}>
+              {headroomStatus.loading
+                ? "Checking…"
+                : headroomStatus.running
+                  ? "Running"
+                  : headroomStatus.installed
+                    ? "Stopped"
+                    : "Not installed"}
+            </span>
+          </div>
+
           <div>
             <label className="text-sm font-medium text-text-main mb-2 block">
               Proxy URL
@@ -1658,79 +1669,56 @@ export default function APIPageClient({ machineId }) {
               placeholder="http://localhost:8787"
               className="font-mono text-sm"
             />
-            <p className="text-xs text-text-muted mt-1">
-              Default: http://localhost:8787
+            <p className="text-sm text-text-muted mt-2">
+              Use a local proxy for Start/Stop, or an external Docker sidecar like http://headroom:8787.
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-medium text-text-main">Install then click Start:</p>
+            <div className="flex items-center gap-3">
+              <code className="flex-1 rounded bg-input px-3 py-2 font-mono text-sm text-text-main">
+                pip install &quot;headroom-ai[proxy]&quot;
+              </code>
+              <button
+                onClick={() => copy('pip install "headroom-ai[proxy]"', "headroom_install")}
+                className="text-sm font-medium text-primary hover:opacity-80 transition-opacity shrink-0"
+              >
+                {copied === "headroom_install" ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={checkHeadroomStatus}
+              className="flex-1 px-4 py-2.5 rounded text-text-main hover:bg-surface-2 transition-colors font-medium"
+            >
+              Recheck
+            </button>
             {headroomStatus.running ? (
               <button
                 onClick={handleHeadroomStop}
-                className="flex-1 px-4 py-2 rounded border border-warning text-warning hover:bg-warning/10 transition-colors"
+                className="flex-1 px-4 py-2.5 rounded border border-warning text-warning hover:bg-warning/10 transition-colors font-medium"
               >
-                Stop Proxy
+                Stop
+              </button>
+            ) : headroomStatus.installed ? (
+              <button
+                onClick={handleHeadroomStart}
+                className="flex-1 px-4 py-2.5 rounded bg-primary text-white hover:bg-primary/90 transition-colors font-medium"
+              >
+                Start
               </button>
             ) : (
               <button
-                onClick={handleHeadroomStart}
-                className="flex-1 px-4 py-2 rounded bg-success text-white hover:bg-success/90 transition-colors"
+                onClick={() => setShowHeadroomModal(false)}
+                className="flex-1 px-4 py-2.5 rounded bg-primary text-white hover:bg-primary/90 transition-colors font-medium"
               >
-                Start Proxy
+                Done
               </button>
             )}
-            <button
-              onClick={checkHeadroomStatus}
-              className="px-4 py-2 rounded border border-border text-text-main hover:bg-surface-2 transition-colors"
-            >
-              Refresh
-            </button>
           </div>
-
-          {headroomStatus.loading ? (
-            <div className="text-sm text-text-muted text-center py-4">
-              Checking status...
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2 p-3 rounded bg-surface-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-text-muted">Installed:</span>
-                <span className={headroomStatus.installed ? "text-success" : "text-warning"}>
-                  {headroomStatus.installed ? "Yes" : "No"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-text-muted">Running:</span>
-                <span className={headroomStatus.running ? "text-success" : "text-warning"}>
-                  {headroomStatus.running ? "Yes" : "No"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-text-muted">Python:</span>
-                <span className={headroomStatus.python ? "text-success" : "text-text-muted"}>
-                  {headroomStatus.python ? "Detected" : "Not found"}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {!headroomStatus.installed && (
-            <div className="text-sm text-text-muted p-3 rounded bg-info/10 border border-info/20">
-              <p className="font-medium text-info mb-2">Installation:</p>
-              <p>
-                Headroom is not installed. Visit the{" "}
-                <a
-                  href="https://github.com/HeadroomAI/headroom"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary underline hover:opacity-80"
-                >
-                  GitHub repository
-                </a>{" "}
-                for installation instructions.
-              </p>
-            </div>
-          )}
         </div>
       </Modal>
 
