@@ -268,7 +268,7 @@ export async function getQoderUsage(accessToken, proxyOptions = null) {
       expiresAt: expiresAtMs,
     };
     if (result.isQuotaExceeded && Object.keys(quotas).length === 0) {
-      result.message = "Qoder quota is exhausted.";
+      result.message = "Qoder quota is exhausted (free models like qdmodel_latest may still be available).";
     }
     return result;
   } catch (error) {
