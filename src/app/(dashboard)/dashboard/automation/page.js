@@ -2,8 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, CodeBuddyCnAutomationModal, KiroOAuthWrapper, OAuthModal } from "@/shared/components";
+import ProviderIcon from "@/shared/components/ProviderIcon";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { isProviderDisabledFromConnections } from "@/shared/utils/providerConnectionStats";
+
+function AutomationProviderIcon({ providerId, providerMeta, size = 32 }) {
+  const meta = providerMeta || AI_PROVIDERS[providerId] || { id: providerId };
+  const color = meta.color || "#888888";
+  const iconSize = Math.max(22, size - 2);
+
+  return (
+    <div
+      className="shrink-0 rounded-lg flex items-center justify-center"
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: color.length > 7 ? color : `${color}15`,
+      }}
+    >
+      <ProviderIcon
+        src={meta.image || `/providers/${providerId}.png`}
+        alt={meta.name || providerId}
+        size={iconSize}
+        className="object-contain rounded-lg max-w-[32px] max-h-[32px]"
+        fallbackText={meta.textIcon || providerId.slice(0, 2).toUpperCase()}
+        fallbackColor={color}
+      />
+    </div>
+  );
+}
 
 function getConnectionLabel(count) {
   return `${count} connection${count === 1 ? "" : "s"}`;
@@ -392,7 +419,6 @@ const AUTOMATION_PROVIDERS = [
   {
     id: "kiro",
     label: "Kiro AI",
-    icon: "psychology_alt",
     description: "Token import, bulk import, and social login automation.",
     supportedModes: ["single-token", "bulk-token", "bulk-account", "social"],
     component: KiroAutomationPanel,
@@ -400,7 +426,6 @@ const AUTOMATION_PROVIDERS = [
   {
     id: "qoder",
     label: "Qoder",
-    icon: "water_drop",
     description: "Bulk Google SSO automation and browser device login polling.",
     supportedModes: ["bulk-account", "device-oauth"],
     component: QoderAutomationPanel,
@@ -408,7 +433,6 @@ const AUTOMATION_PROVIDERS = [
   {
     id: "codebuddy",
     label: "CodeBuddy",
-    icon: "smart_toy",
     description: "Bulk GSuite automation and browser OAuth polling login.",
     supportedModes: ["bulk-account", "device-oauth"],
     component: CodeBuddyAutomationPanel,
@@ -416,7 +440,6 @@ const AUTOMATION_PROVIDERS = [
   {
     id: "codebuddy-cn",
     label: "CodeBuddy CN",
-    icon: "smart_toy",
     description: "Device OAuth and 5sim-assisted bulk registration automation.",
     supportedModes: ["oauth", "5sim-bulk"],
     component: CodeBuddyCnAutomationPanel,
@@ -500,7 +523,7 @@ export default function AutomationPage() {
                   : "border-border bg-surface text-text-main hover:border-primary/30 hover:bg-primary/5"
               }`}
             >
-              <span className="material-symbols-outlined text-[22px]">{provider.icon}</span>
+              <AutomationProviderIcon providerId={provider.id} providerMeta={providerMeta} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
                   <span className="block truncate text-sm font-semibold">{provider.label}</span>
@@ -529,7 +552,7 @@ export default function AutomationPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[22px] text-primary">{activeProvider.icon}</span>
+                <AutomationProviderIcon providerId={activeProvider.id} providerMeta={providerInfo} />
                 <h2 className="text-lg font-semibold">{activeProvider.label}</h2>
                 {providerInfo.statusLabel && (
                   <Badge variant="error" size="sm">
