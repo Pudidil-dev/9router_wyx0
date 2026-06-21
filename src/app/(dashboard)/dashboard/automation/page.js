@@ -398,6 +398,14 @@ const AUTOMATION_PROVIDERS = [
     component: KiroAutomationPanel,
   },
   {
+    id: "qoder",
+    label: "Qoder",
+    icon: "water_drop",
+    description: "Bulk Google SSO automation and browser device login polling.",
+    supportedModes: ["bulk-account", "device-oauth"],
+    component: QoderAutomationPanel,
+  },
+  {
     id: "codebuddy",
     label: "CodeBuddy",
     icon: "smart_toy",
@@ -412,14 +420,6 @@ const AUTOMATION_PROVIDERS = [
     description: "Device OAuth and 5sim-assisted bulk registration automation.",
     supportedModes: ["oauth", "5sim-bulk"],
     component: CodeBuddyCnAutomationPanel,
-  },
-  {
-    id: "qoder",
-    label: "Qoder",
-    icon: "water_drop",
-    description: "Bulk Google SSO automation and browser device login polling.",
-    supportedModes: ["bulk-account", "device-oauth"],
-    component: QoderAutomationPanel,
   },
 ];
 

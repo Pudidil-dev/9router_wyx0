@@ -395,6 +395,25 @@ export class CodeBuddyBulkImportManager extends BaseBulkImportManager {
     this.pollIntervalMs = pollIntervalMs;
   }
 
+  startJob({ accounts, parsedAccounts, concurrency, browser } = {}) {
+    let normalizedAccounts = parsedAccounts;
+
+    if (!Array.isArray(normalizedAccounts)) {
+      const { parsed, invalidLines } = parseCodeBuddyBulkAccounts(accounts);
+      if (invalidLines.length > 0) {
+        const error = "Invalid account format. Use one account per line: gmail@example.com|password";
+        throw Object.assign(new Error(error), { error, invalidLines });
+      }
+      normalizedAccounts = parsed;
+    }
+
+    return super.startJob({
+      parsedAccounts: normalizedAccounts,
+      concurrency,
+      browser,
+    });
+  }
+
   async runManualFollowup(job, account, workerId, context, successPromise) {
     const followupPromise = (async () => {
       try {

@@ -21,6 +21,7 @@ import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
+import { deleteConnectionsById } from "./connectionBulkActions";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 const KIRO_BULK_JOB_STORAGE_KEY = "kiro-bulk-import-active-job";
@@ -102,6 +103,7 @@ export default function ProviderDetailPage() {
   const [testingModelIds, setTestingModelIds] = useState(() => new Set());
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
+  const [deletingSelectedConnections, setDeletingSelectedConnections] = useState(false);
   const [bulkProxyPoolId, setBulkProxyPoolId] = useState("__none__");
   const [bulkUpdatingProxy, setBulkUpdatingProxy] = useState(false);
   const [providerStrategy, setProviderStrategy] = useState(null);
@@ -1067,6 +1069,40 @@ export default function ProviderDetailPage() {
     });
   };
 
+  const handleDeleteSelectedConnections = () => {
+    if (selectedConnections.length === 0 || deletingSelectedConnections) return;
+
+    const targets = [...selectedConnections];
+    setConfirmState({
+      title: "Delete Selected Connections",
+      message: `Delete ${targets.length} selected connection(s)? This action cannot be undone.`,
+      confirmText: `Delete ${targets.length}`,
+      onConfirm: async () => {
+        setConfirmState(null);
+        setDeletingSelectedConnections(true);
+
+        try {
+          const { deletedIds, failedIds } = await deleteConnectionsById(
+            targets.map((connection) => connection.id),
+            (connectionId) => fetch(`/api/providers/${connectionId}`, { method: "DELETE" })
+          );
+
+          if (deletedIds.length > 0) {
+            const deletedIdSet = new Set(deletedIds);
+            setConnections((prev) => prev.filter((connection) => !deletedIdSet.has(connection.id)));
+            setSelectedConnectionIds((prev) => prev.filter((id) => !deletedIdSet.has(id)));
+          }
+
+          if (failedIds.length > 0) {
+            alert(`${failedIds.length} selected connection(s) could not be deleted. Please try again.`);
+          }
+        } finally {
+          setDeletingSelectedConnections(false);
+        }
+      },
+    });
+  };
+
   const isSelected = (connectionId) => effectiveSelectedConnectionIds.includes(connectionId);
 
   const totalConnectionPages = Math.max(1, Math.ceil(filteredConnections.length / connectionsPageSize));
@@ -1747,9 +1783,26 @@ export default function ProviderDetailPage() {
                   <span className="text-xs text-text-muted">{selectedProxySummary}</span>
                 )}
                 {selectedConnections.length > 0 && (
-                  <Button size="sm" variant="ghost" onClick={clearSelection}>
-                    Clear
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      icon="delete"
+                      loading={deletingSelectedConnections}
+                      onClick={handleDeleteSelectedConnections}
+                      disabled={providerActionsDisabled}
+                    >
+                      {deletingSelectedConnections ? "Deleting..." : `Delete selected (${selectedConnections.length})`}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={clearSelection}
+                      disabled={deletingSelectedConnections}
+                    >
+                      Clear
+                    </Button>
+                  </>
                 )}
                 {terminalConnections.length > 0 && (
                   <Button
@@ -2233,6 +2286,7 @@ export default function ProviderDetailPage() {
         onConfirm={confirmState?.onConfirm}
         title={confirmState?.title || "Confirm"}
         message={confirmState?.message}
+        confirmText={confirmState?.confirmText}
         variant="danger"
       />
     </div>

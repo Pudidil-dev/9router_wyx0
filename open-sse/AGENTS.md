@@ -1,35 +1,44 @@
-# open-sse
+# Provider Runtime Core
 
-Provider-agnostic SSE engine: one OpenAI-style request → any provider (LLM chat, image, embedding, tts, stt, search), streamed back in the client's format.
+## Purpose
 
-## Request lifecycle (chat)
+- Own the provider-neutral streaming engine that converts OpenAI-style requests into provider calls for chat, image, embedding, TTS, STT, search, and fetch workflows.
 
-`handlers/chatCore.js` → `services/model.js` `parseModel` (resolve `provider/model`) → `executors/index.js` `getExecutor(provider)` → `translator/index.js` `translateRequest` (client format → provider format) → `executor.execute()` (streams upstream) → `translateResponse` (provider chunks → client format) → SSE out.
+## Ownership
 
-## Directory map
+- `handlers/` owns modality-specific request cores and provider handlers.
+- `services/` owns model resolution, token refresh, usage, combos, and account fallback.
+- `executors/` owns upstream provider calls; `base.js` defines `BaseExecutor` and `index.js` selects provider executors.
+- `providers/` owns provider registry construction, capabilities, pricing, and generated registry imports.
+- `config/` owns provider definitions, model metadata, runtime limits, and other constants.
+- `translator/` owns request and response format conversion under its nested contract.
+- `utils/`, `shared/`, `rtk/`, and `transformer/` own shared streaming and provider-runtime helpers.
 
-- `config/` — ALL constants/config (no hardcode elsewhere). `providers.js`/`registry/` (provider defs), `providerModels.js` (alias→models matrix), `runtimeConfig.js` (timeouts, token limits), `*Constants.js`.
-- `translator/` — format conversion. `request/<from>-to-<to>.js`, `response/<from>-to-<to>.js`, `schema/` (enums: ROLE, CLAUDE_BLOCK…), `concerns/` (shared logic), `formats/` (per-format). See `tests/translator/AGENTS.md`.
-- `executors/` — per-provider upstream call. `base.js` (BaseExecutor), one file per special provider, `index.js` map.
-- `providers/` — registry build + `capabilities.js` + `pricing.js`. Entry: `index.js` (PROVIDERS).
-- `handlers/` — per-modality cores (chat/image/embedding/tts/stt/search) + sub-provider folders.
-- `services/` — `tokenRefresh/`, `usage/`, `combo.js`, `accountFallback.js`, `model.js`.
-- `utils/` — streamHandler, error, sessionManager, claudeCloaking.
+## Local Contracts
 
-## Conventions
+- Preserve the chat lifecycle: `handlers/chatCore.js` resolves the model, selects an executor, translates the request, streams the upstream response, and translates chunks into the client format.
+- Keep models, provider metadata, role and block strings, limits, and other stable values config-driven rather than hard-coded in execution paths.
+- Keep warning and default-active metadata separate from `systemDisabled`; warned providers may remain user-enableable unless a hard runtime lock is intentional.
+- Use OpenAI as the normal intermediate translator format, but prefer an exact source-to-target registration when the bridge would lose thinking, images, tool identifiers, error state, or wire-format details.
+- Keep binary AWS EventStream, protobuf ConnectRPC, and NDJSON handling in their specialized executors instead of treating them as ordinary JSON or SSE translators.
+- Preserve abort propagation, streaming order, fallback behavior, terminal errors, and usage accounting across provider paths.
+- Provider-specific usage handlers may return durable metadata patches, but credit refreshes must not overwrite authentication, activation, or gateway-state metadata owned by the provider lifecycle.
+- Treat `providers/registry/index.js` as generated output; regenerate it after adding or removing registry modules.
 
-- Config-driven, DRY, camelCase. NEVER hardcode values, models, or block/role strings — use `config/` + `schema/` constants.
-- Translator pipeline pivots through OpenAI as the intermediate format. A translator registered on the exact `source:target` pair (e.g. `claude:kiro`) runs as a **direct route**, skipping the lossy double-hop.
-- Translators self-register via `register(from, to, reqFn, resFn)` as an import side-effect — new files MUST be imported in `translator/index.js`.
+## Work Guidance
 
-## How to add
+- Add a provider by copying `providers/REGISTRY_TEMPLATE.js` to `providers/registry/<id>.js` and adding its models to `config/providerModels.js`.
+- Add a custom executor only for non-standard upstream behavior; otherwise rely on `DefaultExecutor`.
+- Add translators through the existing registration pattern, import registration modules from `translator/index.js`, and reuse translator schema and concern helpers.
+- Trace both request and response paths before changing format conversion, fallback, or stream handling.
 
-- **Provider**: copy `providers/REGISTRY_TEMPLATE.js` → `providers/registry/{id}.js`; add models to `config/providerModels.js`. Generic providers need no executor (DefaultExecutor handles OpenAI-compatible APIs).
-- **Executor** (only for non-standard upstream): subclass `BaseExecutor` (override `getBaseUrls`/`buildHeaders`/`buildUrl`/`execute`), register in `executors/index.js` map. `getExecutor` falls back to `DefaultExecutor` when absent.
-- **Translator**: add `request|response/<from>-to-<to>.js` calling `register(...)`, then import it in `translator/index.js`. Reuse `schema/` + `concerns/` — don't re-implement parsing.
+## Verification
 
-## Pitfalls
+- Run focused executor, routing, fallback, and provider tests under `tests/unit`.
+- Run the relevant translator tests under `tests/translator` with `--config tests/vitest.config.js` when formats or model metadata change.
+- Run `tests/translator/coverage-all-models.test.js` after provider registry or model-matrix changes.
+- Run `npm run build` when exports, configuration, or server bundling changes.
 
-- OpenAI bridge is lossy (thinking, non-base64 images, tool ids, is_error) — prefer a direct route for fragile pairs.
-- `registry/index.js` is an auto-generated static import list; regenerate it (don't hand-edit) after adding a `registry/{id}.js`. REGISTRY_TEMPLATE is excluded by design.
-- Special binary/protobuf formats (kiro EventStream, cursor protobuf, commandcode NDJSON) don't round-trip through OpenAI — handle in their executor.
+## Child DOX Index
+
+- `translator/AGENTS.md` - request and response format conversion, registrations, bridge constraints, and translator verification.
