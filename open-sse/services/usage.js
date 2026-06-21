@@ -7,13 +7,10 @@ import { getGitHubUsage } from "./usage/github.js";
 import { getGeminiUsage, getAntigravityUsage } from "./usage/google.js";
 import { getClaudeUsage } from "./usage/claude.js";
 import { getCodexUsage, consumeCodexRateLimitResetCredit } from "./usage/codex.js";
-import {
-  buildCodeBuddyCnAuthHeaders,
-  buildCodeBuddyCnProviderMetadata,
-  buildCodeBuddyCnUsageResult,
-  CODEBUDDY_CN_PROBE_URL,
-  resolveCodeBuddyCnCredential,
-} from "./codebuddyCn.js";
+import { getCodeBuddyCnUsage } from "./usage/codebuddy-cn.js";
+// CodeBuddy CN auth/metadata helpers live in ./codebuddyCn.js and are consumed
+// directly by ./usage/codebuddy-cn.js. The legacy inline CN usage handler that
+// used them from this file was replaced during the v0.5.8 sync.
 
 export { consumeCodexRateLimitResetCredit };
 import { getKiroUsage } from "./usage/kiro.js";
@@ -63,7 +60,7 @@ const USAGE_HANDLERS = {
   minimax: (c) => getMiniMaxUsage(c.apiKey, c.provider, c.proxyOptions),
   "minimax-cn": (c) => getMiniMaxUsage(c.apiKey, c.provider, c.proxyOptions),
   "vercel-ai-gateway": (c) => getVercelAiGatewayUsage(c.apiKey, c.proxyOptions),
-  "codebuddy-cn": (c) => getCodeBuddyCnUsage(c, c.proxyOptions),
+  "codebuddy-cn": (c) => getCodeBuddyCnUsage(c.accessToken, c.apiKey, c.providerSpecificData, c.proxyOptions),
 };
 
 export async function getUsageForProvider(connection, proxyOptions = null) {
@@ -87,56 +84,10 @@ export async function getUsageForProvider(connection, proxyOptions = null) {
   });
 }
 
-async function getCodeBuddyCnUsage(connection, proxyOptions = null) {
-  const resolved = resolveCodeBuddyCnCredential(connection);
-  if (!resolved.token) {
-    return {
-      plan: "CodeBuddy CN",
-      message: "CodeBuddy CN requires jwt_token, access_token, or api_key credentials.",
-      quotas: {},
-    };
-  }
-
-  const providerMetadata = buildCodeBuddyCnProviderMetadata(connection);
-  try {
-    const response = await proxyAwareFetch(CODEBUDDY_CN_PROBE_URL, {
-      method: "GET",
-      headers: buildCodeBuddyCnAuthHeaders(connection),
-    }, proxyOptions);
-    const rawText = await response.text();
-    let payload = null;
-    try {
-      payload = rawText ? JSON.parse(rawText) : null;
-    } catch {
-      payload = null;
-    }
-
-    if (!response.ok) {
-      return {
-        plan: "CodeBuddy CN",
-        message: `CodeBuddy CN credit endpoint returned ${response.status}.`,
-        quotas: {},
-        providerSpecificDataPatch: providerMetadata,
-      };
-    }
-
-    const usage = buildCodeBuddyCnUsageResult(payload, connection.providerSpecificData || {});
-    return {
-      ...usage,
-      providerSpecificDataPatch: {
-        ...providerMetadata,
-        ...(usage.providerSpecificDataPatch || {}),
-      },
-    };
-  } catch (error) {
-    return {
-      plan: "CodeBuddy CN",
-      message: `CodeBuddy CN connected. Unable to fetch credits: ${error.message}`,
-      quotas: {},
-      providerSpecificDataPatch: providerMetadata,
-    };
-  }
-}
+// CodeBuddy CN usage is handled by ./usage/codebuddy-cn.js (Tencent billing
+// endpoint with refill/bonus credit separation). The legacy inline handler
+// was replaced during the v0.5.8 sync; the helpers below remain in use by
+// the CodeBuddy (non-CN) path and the providerMetadata enrichment.
 
 async function fetchCodeBuddyUid(accessToken, providerSpecificData = {}, proxyOptions = null) {
   const cachedUid = providerSpecificData?.uid || providerSpecificData?.rawAuth?.uid;

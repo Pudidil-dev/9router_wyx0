@@ -35,6 +35,11 @@ export default {
       header: "Authorization",
       scheme: "bearer",
     },
+    // Tencent billing payload (data.Response.Data.Accounts[]). See
+    // services/usage/codebuddy-cn.js for the refill/bonus credit handling.
+    usage: {
+      url: "https://copilot.tencent.com/v2/billing/meter/get-user-resource",
+    },
   },
   models: [
     { id: "glm-5.2", name: "GLM-5.2" },
