@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { compressMessages, setRtkEnabled, isRtkEnabled, formatRtkLog } from "../../open-sse/rtk/index.js";
+import { compressMessages as originalCompressMessages, formatRtkLog } from "../../open-sse/rtk/index.js";
+
+let rtkEnabledGlobal = false;
+const setRtkEnabled = (val) => { rtkEnabledGlobal = val; };
+const isRtkEnabled = () => rtkEnabledGlobal;
+const compressMessages = (body) => originalCompressMessages(body, rtkEnabledGlobal);
 import { gitDiff } from "../../open-sse/rtk/filters/gitDiff.js";
 import { gitStatus } from "../../open-sse/rtk/filters/gitStatus.js";
 import { grep } from "../../open-sse/rtk/filters/grep.js";

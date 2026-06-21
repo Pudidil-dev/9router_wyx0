@@ -237,32 +237,40 @@ export async function getQoderUsage(accessToken, proxyOptions = null) {
     // Qoder publishes a single absolute reset timestamp (`expiresAt` in ms);
     // surface it on every quota record as ISO so the table can render
     // "resets at" alongside used/total.
-    const expiresAtMs = Number.isFinite(Number(body.expiresAt)) && Number(body.expiresAt) > 0
+    const YEAR_9999_MS = 253402214400000;
+    const expiresAtMs = Number.isFinite(Number(body.expiresAt)) && Number(body.expiresAt) > 0 && Number(body.expiresAt) !== YEAR_9999_MS
       ? Number(body.expiresAt)
       : null;
     const resetAt = expiresAtMs ? new Date(expiresAtMs).toISOString() : null;
-    const quotas = {
-      user: {
-        total: Number(userQuota.total) || 0,
+    const quotas = {};
+    if (Number(userQuota.total) > 0) {
+      quotas.user = {
+        total: Number(userQuota.total),
         used: Number(userQuota.used) || 0,
         remaining: Number(userQuota.remaining) || 0,
         unit: userQuota.unit || "credits",
         resetAt,
-      },
-      organization: {
-        total: Number(orgQuota.total) || 0,
+      };
+    }
+    if (Number(orgQuota.total) > 0) {
+      quotas.organization = {
+        total: Number(orgQuota.total),
         used: Number(orgQuota.used) || 0,
         remaining: Number(orgQuota.remaining) || 0,
         unit: orgQuota.unit || "credits",
         resetAt,
-      },
-    };
-    return {
+      };
+    }
+    const result = {
       quotas,
       totalUsagePercentage: Number(body.totalUsagePercentage) || 0,
       isQuotaExceeded: !!body.isQuotaExceeded,
       expiresAt: expiresAtMs,
     };
+    if (result.isQuotaExceeded && Object.keys(quotas).length === 0) {
+      result.message = "Qoder quota is exhausted.";
+    }
+    return result;
   } catch (error) {
     return { message: `Qoder connected. Unable to fetch usage: ${error.message}` };
   }

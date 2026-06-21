@@ -6,7 +6,7 @@ export async function collectPaginatedConnections(fetchPage) {
   if (totalPages > 1) {
     const remainingPages = await Promise.all(
       Array.from({ length: totalPages - 1 }, (_, index) => index + 2).map(
-        fetchPage,
+        (page) => fetchPage(page),
       ),
     );
     remainingPages.forEach((page) => {
