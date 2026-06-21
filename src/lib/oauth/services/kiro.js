@@ -12,6 +12,24 @@ import { generatePKCE } from "../utils/pkce.js";
 
 const KIRO_AUTH_SERVICE = "https://prod.us-east-1.auth.desktop.kiro.dev";
 
+// Kiro's token endpoint occasionally returns a transient 5xx ("Oops, something
+// went wrong. Please try again later.") during bulk import. The OAuth code is
+// not consumed by a failed exchange, so a short bounded retry recovers those
+// accounts automatically. 4xx means the code is invalid/expired/consumed and
+// must NOT be retried — the code is single-use and a second attempt cannot help.
+const SOCIAL_EXCHANGE_MAX_ATTEMPTS = 3;
+const SOCIAL_EXCHANGE_BACKOFF_MS = 1500;
+
+function isTransientSocialExchangeStatus(status) {
+  return status === 408          // Request Timeout
+    || status === 429            // Too Many Requests
+    || (status >= 500 && status <= 599);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class KiroService {
   /**
    * Generate Google/GitHub social authorization payload with PKCE.
@@ -158,35 +176,66 @@ export class KiroService {
   /**
    * Exchange authorization code for tokens (Social Login)
    * Must use same redirect_uri as authorization request
+   *
+   * Retries transient failures (5xx, 408, 429, network errors) up to
+   * SOCIAL_EXCHANGE_MAX_ATTEMPTS times: a failed exchange does not consume the
+   * single-use OAuth code, so the same code can be re-submitted. 4xx responses
+   * (invalid/expired/consumed code) fail immediately without retry.
    */
   async exchangeSocialCode(code, codeVerifier) {
     // Must match the redirect_uri used in buildSocialLoginUrl
     const redirectUri = "kiro://kiro.kiroAgent/authenticate-success";
-
-    const response = await fetch(`${KIRO_AUTH_SERVICE}/oauth/token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        code,
-        code_verifier: codeVerifier,
-        redirect_uri: redirectUri,
-      }),
+    const endpoint = `${KIRO_AUTH_SERVICE}/oauth/token`;
+    const body = JSON.stringify({
+      code,
+      code_verifier: codeVerifier,
+      redirect_uri: redirectUri,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Token exchange failed: ${error}`);
+    let lastErrorText = "";
+    for (let attempt = 1; attempt <= SOCIAL_EXCHANGE_MAX_ATTEMPTS; attempt += 1) {
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+      } catch (networkError) {
+        // Network-level failure: the request never reached Kiro, so the OAuth
+        // code is still unconsumed. Retry on every attempt except the last.
+        lastErrorText = networkError?.message || "network error";
+        if (attempt < SOCIAL_EXCHANGE_MAX_ATTEMPTS) {
+          await wait(SOCIAL_EXCHANGE_BACKOFF_MS);
+          continue;
+        }
+        throw new Error(`Token exchange failed: ${lastErrorText}`);
+      }
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          profileArn: data.profileArn,
+          expiresIn: data.expiresIn || 3600,
+        };
+      }
+
+      lastErrorText = await response.text().catch(() => "");
+
+      // 4xx = the code itself is bad (invalid/expired/consumed). Retrying a
+      // single-use code cannot succeed, so fail immediately with the real error.
+      if (!isTransientSocialExchangeStatus(response.status)) {
+        throw new Error(`Token exchange failed: ${lastErrorText}`);
+      }
+
+      if (attempt < SOCIAL_EXCHANGE_MAX_ATTEMPTS) {
+        await wait(SOCIAL_EXCHANGE_BACKOFF_MS);
+      }
     }
 
-    const data = await response.json();
-    return {
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-      profileArn: data.profileArn,
-      expiresIn: data.expiresIn || 3600,
-    };
+    throw new Error(`Token exchange failed: ${lastErrorText}`);
   }
 
   /**
