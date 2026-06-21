@@ -20,42 +20,11 @@ function normalizeTools(tools) {
 }
 
 describe("CodexExecutor tool normalization", () => {
-  it("preserves Responses-native tool_search tools", () => {
-    const tools = normalizeTools([
-      {
-        type: "tool_search",
-        execution: "sync",
-        description: "Discover deferred tools",
-        parameters: { type: "object", properties: {} },
-      },
-      {
-        type: "namespace",
-        name: "codex_app",
-        description: "app tools",
-        tools: [
-          {
-            type: "function",
-            name: "automation_update",
-            description: "automation",
-            parameters: { type: "object", properties: {} },
-            defer_loading: true,
-          },
-        ],
-      },
-      {
-        type: "function",
-        name: "plain_fn",
-        description: "plain",
-        parameters: { type: "object", properties: {} },
-      },
-    ]);
-
-    expect(tools.map((tool) => `${tool.type}:${tool.name || ""}`)).toEqual([
-      "tool_search:",
-      "namespace:codex_app",
-      "function:plain_fn",
-    ]);
-  });
+  // NOTE: The upstream "preserves Responses-native tool_search tools" case is
+  // intentionally omitted here. It verifies tool_search/namespace preservation
+  // added to upstream's CodexExecutor, which Wyx0's codex.js has not yet
+  // adopted (it still strips those tool types during normalization). Re-add
+  // this case when Wyx0's CodexExecutor is aligned with upstream.
 
   it("preserves hosted Responses tools", () => {
     const tools = normalizeTools([
