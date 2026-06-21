@@ -1,5 +1,7 @@
 const DEFAULT_SHORT_TIMEOUT_MS = 90_000;
 const DEFAULT_MANUAL_TIMEOUT_MS = 15 * 60_000;
+const GOOGLE_EMAIL_TRANSITION_GRACE_MS = 6_000;
+const GOOGLE_PASSWORD_TRANSITION_GRACE_MS = 8_000;
 
 const EMAIL_INPUT_SELECTOR = '#identifierId, input[name="identifier"], input[type="email"], input[autocomplete="username"], input[aria-label*="Email" i], input[aria-label*="phone" i]';
 const PASSWORD_INPUT_SELECTOR = 'input[type="password"]';
@@ -16,39 +18,21 @@ const NEXT_BUTTON_SELECTORS = [
   'div[role="button"]:has-text("Berikutnya")',
 ];
 
-const GOOGLE_CONSENT_BUTTON_SELECTORS = [
-  '#submit_approve_access',
+// Keep the locator fallback deliberately small. The DOM path below is the
+// primary path; this is only for a footer rendered after the first DOM probe.
+// A broad selector list with a five-second click timeout can stall one worker
+// for minutes when Google renders a slightly different consent document.
+const GOOGLE_CONSENT_FALLBACK_SELECTORS = [
   '#submit_approve_access button',
-  'button[jsname]:has-text("Allow")',
-  'button:has-text("Allow")',
-  '[role="button"]:has-text("Allow")',
-  'input[type="submit"][value="Allow"]',
-  'input[type="button"][value="Allow"]',
-  'button[jsname]:has-text("Izinkan")',
-  'button:has-text("Izinkan")',
-  '[role="button"]:has-text("Izinkan")',
-  'button:has-text("Continue")',
-  'button:has-text("Yes")',
-  'button:has-text("Accept")',
+  '#submit_approve_access',
   'button:has-text("Lanjutkan")',
-  'button:has-text("Setuju")',
-  'button:has-text("Saya mengerti")',
-  'button:has-text("Oke")',
-  'button:has-text("OK")',
-  'button:has-text("Got it")',
-  'button:has-text("I understand")',
-  'div[role="button"]:has-text("Continue")',
-  'div[role="button"]:has-text("Allow")',
   'div[role="button"]:has-text("Lanjutkan")',
+  'button:has-text("Izinkan")',
   'div[role="button"]:has-text("Izinkan")',
-  'div[role="button"]:has-text("Setuju")',
-  'div[role="button"]:has-text("Saya mengerti")',
-  'div[role="button"]:has-text("Oke")',
-  'div[role="button"]:has-text("OK")',
-  'div[role="button"]:has-text("Got it")',
-  'div[role="button"]:has-text("I understand")',
-  'input[type="button"][value="Saya mengerti"]',
-  'input[type="submit"][value="Saya mengerti"]',
+  'button:has-text("Allow")',
+  'div[role="button"]:has-text("Allow")',
+  'button:has-text("Continue")',
+  'div[role="button"]:has-text("Continue")',
 ];
 
 const APPROVE_BUTTON_SELECTORS = [
@@ -459,9 +443,12 @@ async function fillGoogleInputByDom(page, selectors, value) {
   return false;
 }
 
-async function handleGoogleCredentialInputs(page, email, password, reportStep) {
+async function handleGoogleCredentialInputs(page, email, password, reportStep, credentialState = null) {
+  const now = Date.now();
   const emailInput = await getFirstVisibleLocator(page, EMAIL_INPUT_SELECTOR);
-  if (emailInput) {
+  const emailRecentlySubmitted = credentialState?.emailSubmittedAt
+    && (now - credentialState.emailSubmittedAt) < GOOGLE_EMAIL_TRANSITION_GRACE_MS;
+  if (emailInput && !emailRecentlySubmitted) {
     reportStep("google_email_input_found", "Google email input detected");
     reportStep("entering_email", "Entering Google email");
     const filledEmail = await fillGoogleInput(emailInput, email);
@@ -482,13 +469,16 @@ async function handleGoogleCredentialInputs(page, email, password, reportStep) {
     }
     reportStep("submitting_email", "Submitting email");
     const submitMethod = await submitGoogleInput(page, emailInput);
+    if (credentialState) credentialState.emailSubmittedAt = Date.now();
     reportStep("google_email_submitted", submitMethod === "next" ? "Clicked Google email Next button" : "Submitted Google email with Enter");
     await page.waitForTimeout(900);
     return true;
   }
 
   const passwordInput = await getFirstVisibleLocator(page, PASSWORD_INPUT_SELECTOR);
-  if (passwordInput) {
+  const passwordRecentlySubmitted = credentialState?.passwordSubmittedAt
+    && (now - credentialState.passwordSubmittedAt) < GOOGLE_PASSWORD_TRANSITION_GRACE_MS;
+  if (passwordInput && !passwordRecentlySubmitted) {
     reportStep("google_password_input_found", "Google password input detected");
     reportStep("entering_password", "Entering Google password");
     const filledPassword = await fillGoogleInput(passwordInput, password);
@@ -502,6 +492,7 @@ async function handleGoogleCredentialInputs(page, email, password, reportStep) {
     }
     reportStep("submitting_password", "Submitting password");
     const submitMethod = await submitGoogleInput(page, passwordInput);
+    if (credentialState) credentialState.passwordSubmittedAt = Date.now();
     reportStep("google_password_submitted", submitMethod === "next" ? "Clicked Google password Next button" : "Submitted Google password with Enter");
     await page.waitForTimeout(900);
     return true;
@@ -572,7 +563,10 @@ async function waitForSuccessAfterBrowserClosed({
 function isGoogleAuthPage(page) {
   try {
     const url = new URL(page.url());
-    return url.hostname === "accounts.google.com" || url.hostname.endsWith(".accounts.google.com");
+    const hostname = url.hostname.toLowerCase();
+    return hostname === "accounts.google.com"
+      || hostname.startsWith("accounts.google.")
+      || hostname.endsWith(".accounts.google.com");
   } catch {
     return false;
   }
@@ -631,26 +625,87 @@ function getSafePagePath(page) {
 
 async function handleGoogleConsent(page, reportStep) {
   if (!isGoogleAuthPage(page)) return false;
-  if (await hasGoogleCredentialInput(page)) return false;
-
-  const text = await readPageText(page);
-  const looksLikeConsent = GOOGLE_CONSENT_TEXT_PATTERN.test(text);
-  if (!looksLikeConsent) return false;
-
-  await page.evaluate(() => {
-    const root = document.scrollingElement || document.documentElement || document.body;
-    if (root) root.scrollTop = root.scrollHeight;
-    window.scrollTo(0, document.body?.scrollHeight || document.documentElement?.scrollHeight || 0);
-  }).catch(() => null);
-  await page.waitForTimeout(300);
-
-  const clickedApprove = await clickFirstActionable(page, GOOGLE_CONSENT_BUTTON_SELECTORS);
+  // Keep this immediate and DOM-first. Google localizes consent copy and its
+  // fixed footer can make Playwright-style locator clicks wait for seconds.
+  // Enow's flow succeeds by probing the actual approval control on every
+  // Google page instead of first requiring a particular consent sentence.
+  const clickedApprove = await clickGoogleConsentByDom(page)
+    || await clickGoogleConsentLocatorFallback(page);
   if (clickedApprove) {
     reportStep("approving_google_consent", "Approving Google OAuth consent");
     await page.waitForTimeout(1000);
     return true;
   }
 
+  return false;
+}
+
+async function clickGoogleConsentByDom(page) {
+  const consentActionPattern = /continue|allow|lanjut|izinkan|setuju|accept|yes|ok|oke|got it|i understand/i;
+
+  for (const scope of getInteractionScopes(page)) {
+    const clicked = await scope.evaluate((patternSource) => {
+      const isVisible = (element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.visibility !== "hidden"
+          && style.display !== "none"
+          && Number(style.opacity) !== 0
+          && rect.width > 0
+          && rect.height > 0;
+      };
+      const directApprove = document.querySelector("#submit_approve_access button, #submit_approve_access");
+      if (directApprove instanceof HTMLElement && isVisible(directApprove) && !directApprove.hasAttribute("disabled")) {
+        directApprove.scrollIntoView({ block: "center", inline: "center" });
+        directApprove.focus?.();
+        directApprove.click();
+        directApprove.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        directApprove.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+        directApprove.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+        return true;
+      }
+
+      const pattern = new RegExp(patternSource, "i");
+      const candidates = [...document.querySelectorAll('button, div[role="button"], [role="button"], input[type="submit"], input[type="button"]')];
+      const action = candidates.find((element) => {
+        if (!isVisible(element) || element.hasAttribute("disabled")) return false;
+        const label = String(
+          element.getAttribute("aria-label")
+          || element.getAttribute("value")
+          || element.textContent
+          || ""
+        ).trim();
+        return pattern.test(label);
+      });
+      if (!action) return false;
+      action.scrollIntoView({ block: "center", inline: "center" });
+      action.focus?.();
+      action.click();
+      action.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      action.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      action.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      return true;
+    }, consentActionPattern.source).catch(() => false);
+    if (clicked) return true;
+  }
+
+  return false;
+}
+
+async function clickGoogleConsentLocatorFallback(page) {
+  for (const scope of getInteractionScopes(page)) {
+    for (const selector of GOOGLE_CONSENT_FALLBACK_SELECTORS) {
+      const locator = scope.locator(selector).first();
+      const count = await locator.count().catch(() => 0);
+      if (!count) continue;
+      await locator.scrollIntoViewIfNeeded().catch(() => null);
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      if (!(await locator.isEnabled().catch(() => true))) continue;
+      const clicked = await locator.click({ force: true, timeout: 750 }).then(() => true).catch(() => false);
+      if (clicked) return true;
+    }
+  }
   return false;
 }
 
@@ -1398,6 +1453,10 @@ export async function runGoogleAccountAutomation({
   onStep,
 }) {
   const startTime = Date.now();
+  const credentialState = {
+    emailSubmittedAt: 0,
+    passwordSubmittedAt: 0,
+  };
   let qoderDeviceAuthReopened = false;
   let kiroCallbackWaitReported = false;
   const reportStep = (step, message) => {
@@ -1410,7 +1469,7 @@ export async function runGoogleAccountAutomation({
 
   await handleProviderLoginGate(page, reportStep);
 
-  await handleGoogleCredentialInputs(page, email, password, reportStep);
+  await handleGoogleCredentialInputs(page, email, password, reportStep, credentialState);
 
   try {
   while (Date.now() - startTime < shortTimeoutMs) {
@@ -1445,13 +1504,13 @@ export async function runGoogleAccountAutomation({
       continue;
     }
 
-    const handledCredentialInput = await handleGoogleCredentialInputs(page, email, password, reportStep);
-    if (handledCredentialInput) {
+    const handledGoogleConsent = await handleGoogleConsent(page, reportStep);
+    if (handledGoogleConsent) {
       continue;
     }
 
-    const handledGoogleConsent = await handleGoogleConsent(page, reportStep);
-    if (handledGoogleConsent) {
+    const handledCredentialInput = await handleGoogleCredentialInputs(page, email, password, reportStep, credentialState);
+    if (handledCredentialInput) {
       continue;
     }
 

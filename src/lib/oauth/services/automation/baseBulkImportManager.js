@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "../../../dataDir.js";
 import { createAutomationBrowserLauncher } from "../automationBrowserLauncher.js";
-import { DEFAULT_AUTOMATION_BROWSER, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
+import { DEFAULT_AUTOMATION_BROWSER, normalizeAutomationBrowser } from "../../../../shared/constants/automationBrowsers.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 

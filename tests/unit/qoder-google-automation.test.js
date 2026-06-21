@@ -99,7 +99,13 @@ function createGoogleEmailPage() {
   };
 }
 
-function createGoogleIndonesianConsentPage() {
+function createGoogleIndonesianConsentPage({
+  url = "https://accounts.google.co.id/signin/oauth/id",
+  locatorCanClick = true,
+  domCanClick = true,
+  stalePasswordVisible = false,
+  text = "Login ke qoder.com Google akan mengizinkan qoder.com mengakses info tentang Anda ini Nama dan foto profil Alamat email Lanjutkan",
+} = {}) {
   let continueClicks = 0;
   let resolveSuccess;
   const successPromise = new Promise((resolve) => {
@@ -111,19 +117,38 @@ function createGoogleIndonesianConsentPage() {
     async isVisible() { return true; },
     async isEnabled() { return true; },
     async click() {
+      if (!locatorCanClick) throw new Error("Fixed Google footer intercepted the locator click");
       continueClicks += 1;
       resolveSuccess({ tokens: {} });
     },
   });
 
   const page = createAutomationPage({
-    url: "https://accounts.google.com/signin/oauth/id",
-    text: "Login ke qoder.com Google akan mengizinkan qoder.com mengakses info tentang Anda ini Nama dan foto profil Alamat email Lanjutkan",
+    url,
+    text,
   });
 
   page.locator = (selector) => {
+    if (selector === 'input[type="password"]' && stalePasswordVisible) {
+      return createLocator({
+        async count() { return 1; },
+        async isVisible() { return true; },
+      });
+    }
     if (selector.includes("Lanjutkan")) return continueLocator;
     return createLocator();
+  };
+
+  const originalEvaluate = page.evaluate;
+  page.evaluate = async (fn, ...args) => {
+    if (String(fn).includes("submit_approve_access")) {
+      if (!domCanClick) return false;
+      if (locatorCanClick) return originalEvaluate(fn, ...args);
+      continueClicks += 1;
+      resolveSuccess({ tokens: {} });
+      return true;
+    }
+    return originalEvaluate(fn, ...args);
   };
 
   return {
@@ -242,6 +267,88 @@ function createQoderMarketingRedirectPage() {
   };
 }
 
+function createPersistentGooglePasswordPage() {
+  let nextClicks = 0;
+  let passwordValue = "";
+  let resolveSuccess;
+  const successPromise = new Promise((resolve) => {
+    resolveSuccess = resolve;
+  });
+  setTimeout(() => resolveSuccess({ tokens: {} }), 1_500);
+
+  const passwordLocator = createLocator({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async fill(value) { passwordValue = value; },
+    async inputValue() { return passwordValue; },
+  });
+  const nextLocator = createLocator({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { nextClicks += 1; },
+  });
+  const page = createAutomationPage({
+    url: "https://accounts.google.com/signin/v2/challenge/pwd",
+    text: "Enter your password",
+  });
+  page.locator = (selector) => {
+    if (selector === 'input[type="password"]') return passwordLocator;
+    if (selector === "#passwordNext button") return nextLocator;
+    return createLocator();
+  };
+
+  return {
+    page,
+    successPromise,
+    get nextClicks() { return nextClicks; },
+  };
+}
+
+function createQoderSuccessRedirectPage() {
+  let currentUrl = "https://qoder.com/account/profile";
+  const visited = [];
+  let resolveSuccess;
+  const successPromise = new Promise((resolve) => {
+    resolveSuccess = resolve;
+  });
+
+  return {
+    page: {
+      async goto(url) {
+        visited.push(url);
+        currentUrl = visited.length === 1 ? "https://qoder.com/account/profile" : url;
+        if (visited.length > 1) {
+          resolveSuccess({ tokens: { accessToken: "access-after-success-reopen" } });
+        }
+      },
+      async waitForTimeout() { return null; },
+      url() { return currentUrl; },
+      frames() { return []; },
+      mainFrame() { return null; },
+      locator() { return createLocator(); },
+      mouse: {
+        async move() { return null; },
+        async down() { return null; },
+        async up() { return null; },
+      },
+      keyboard: {
+        async press() { return null; },
+      },
+      async evaluate(fn) {
+        const source = String(fn);
+        if (source.includes("slice(0, 500)") || source.includes("document.body?.innerText")) {
+          return "Sign in success You're all set!";
+        }
+        return null;
+      },
+    },
+    successPromise,
+    get visited() { return visited; },
+  };
+}
+
 function createClosingQoderPage() {
   let waitCount = 0;
 
@@ -300,13 +407,13 @@ describe("Qoder Google automation", () => {
     expect(steps).not.toContain("approving_consent");
   });
 
-  it("approves Indonesian Google OAuth consent with the Lanjutkan button", async () => {
+  it("approves Indonesian Google OAuth consent on a regional Accounts host", async () => {
     const consentPage = createGoogleIndonesianConsentPage();
     const steps = [];
 
     const result = await runGoogleAccountAutomation({
       page: consentPage.page,
-      authUrl: "https://accounts.google.com/signin/oauth/id",
+      authUrl: "https://accounts.google.co.id/signin/oauth/id",
       email: "user@example.com",
       password: "password",
       successPromise: consentPage.successPromise,
@@ -318,6 +425,80 @@ describe("Qoder Google automation", () => {
     expect(result.status).toBe("success");
     expect(consentPage.continueClicks).toBe(1);
     expect(steps).toContain("approving_google_consent");
+  });
+
+  it("approves Google consent before a stale password field can be re-submitted", async () => {
+    const consentPage = createGoogleIndonesianConsentPage({ stalePasswordVisible: true });
+    const steps = [];
+
+    const result = await runGoogleAccountAutomation({
+      page: consentPage.page,
+      authUrl: "https://accounts.google.co.id/signin/oauth/id",
+      email: "user@example.com",
+      password: "password",
+      successPromise: consentPage.successPromise,
+      shortTimeoutMs: 2000,
+      serviceLabel: "Qoder",
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.status).toBe("success");
+    expect(consentPage.continueClicks).toBe(1);
+    expect(steps).toContain("approving_google_consent");
+    expect(steps).not.toContain("google_password_submitted");
+  });
+
+  it("uses Enow-style direct approval when localized consent text does not match our copy", async () => {
+    const consentPage = createGoogleIndonesianConsentPage({
+      text: "Login ke qoder.com Nama dan foto profil Alamat email Lanjutkan",
+    });
+
+    const result = await runGoogleAccountAutomation({
+      page: consentPage.page,
+      authUrl: "https://accounts.google.co.id/signin/oauth/id",
+      email: "user@example.com",
+      password: "password",
+      successPromise: consentPage.successPromise,
+      shortTimeoutMs: 2000,
+      serviceLabel: "Qoder",
+    });
+
+    expect(result.status).toBe("success");
+    expect(consentPage.continueClicks).toBe(1);
+  });
+
+  it("uses the DOM fallback when Google blocks the fixed-footer locator click", async () => {
+    const consentPage = createGoogleIndonesianConsentPage({ locatorCanClick: false });
+
+    const result = await runGoogleAccountAutomation({
+      page: consentPage.page,
+      authUrl: "https://accounts.google.co.id/signin/oauth/id",
+      email: "user@example.com",
+      password: "password",
+      successPromise: consentPage.successPromise,
+      shortTimeoutMs: 2000,
+      serviceLabel: "Qoder",
+    });
+
+    expect(result.status).toBe("success");
+    expect(consentPage.continueClicks).toBe(1);
+  });
+
+  it("uses a short forced locator fallback when direct consent DOM activation is unavailable", async () => {
+    const consentPage = createGoogleIndonesianConsentPage({ domCanClick: false });
+
+    const result = await runGoogleAccountAutomation({
+      page: consentPage.page,
+      authUrl: "https://accounts.google.co.id/signin/oauth/id",
+      email: "user@example.com",
+      password: "password",
+      successPromise: consentPage.successPromise,
+      shortTimeoutMs: 2000,
+      serviceLabel: "Qoder",
+    });
+
+    expect(result.status).toBe("success");
+    expect(consentPage.continueClicks).toBe(1);
   });
 
   it("clears a partial password before the final typing fallback", async () => {
@@ -335,6 +516,23 @@ describe("Qoder Google automation", () => {
 
     expect(result.status).toBe("success");
     expect(passwordPage.passwordValue).toBe("correct-password");
+    expect(passwordPage.nextClicks).toBe(1);
+  });
+
+  it("does not re-submit a password while Google is transitioning from that step", async () => {
+    const passwordPage = createPersistentGooglePasswordPage();
+
+    const result = await runGoogleAccountAutomation({
+      page: passwordPage.page,
+      authUrl: "https://accounts.google.com/signin/v2/challenge/pwd",
+      email: "user@example.com",
+      password: "password",
+      successPromise: passwordPage.successPromise,
+      shortTimeoutMs: 3_000,
+      serviceLabel: "Qoder",
+    });
+
+    expect(result.status).toBe("success");
     expect(passwordPage.nextClicks).toBe(1);
   });
 
@@ -400,6 +598,33 @@ describe("Qoder Google automation", () => {
     });
     expect(qoderPage.visited).toEqual([authUrl, authUrl]);
     expect(steps).toContain("qoder_non_device_page");
+    expect(steps).toContain("reopening_qoder_device_auth");
+    expect(steps).toContain("qoder_token_received");
+  });
+
+  it("reopens the device link instead of looping on Qoder's sign-in-success page", async () => {
+    const qoderPage = createQoderSuccessRedirectPage();
+    const steps = [];
+    const authUrl = "https://qoder.com/device/selectAccounts?nonce=secret-nonce";
+
+    const result = await runGoogleAccountAutomation({
+      page: qoderPage.page,
+      authUrl,
+      email: "user@example.com",
+      password: "password",
+      successPromise: qoderPage.successPromise,
+      shortTimeoutMs: 2000,
+      serviceLabel: "Qoder",
+      successStep: "qoder_token_received",
+      successMessage: "Qoder device token received",
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      tokens: { accessToken: "access-after-success-reopen" },
+    });
+    expect(qoderPage.visited).toEqual([authUrl, authUrl]);
     expect(steps).toContain("reopening_qoder_device_auth");
     expect(steps).toContain("qoder_token_received");
   });

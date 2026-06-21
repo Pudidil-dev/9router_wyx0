@@ -1,7 +1,7 @@
 import {
   AUTOMATION_BROWSER_CAMOFOX,
   normalizeAutomationBrowser,
-} from "@/shared/constants/automationBrowsers";
+} from "../../../shared/constants/automationBrowsers.js";
 
 function getHostFingerprintOs() {
   if (process.platform === "win32") return "windows";

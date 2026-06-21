@@ -147,6 +147,7 @@ export class QoderBulkImportManager extends BaseBulkImportManager {
       storageName: "qoder-bulk-import",
       providerLabel: QODER_LABEL,
       browserLauncher,
+      browserPerAccount: true,
       defaultConcurrency: QODER_BULK_IMPORT_DEFAULT_CONCURRENCY,
     });
 
@@ -155,6 +156,25 @@ export class QoderBulkImportManager extends BaseBulkImportManager {
     this.pollToken = pollToken;
     this.saveConnection = saveConnection;
     this.pollIntervalMs = pollIntervalMs;
+  }
+
+  startJob({ accounts, parsedAccounts, concurrency, browser } = {}) {
+    let normalizedAccounts = parsedAccounts;
+
+    if (!Array.isArray(normalizedAccounts)) {
+      const { parsed, invalidLines } = parseQoderBulkAccounts(accounts);
+      if (invalidLines.length > 0) {
+        const error = "Invalid account format. Use one account per line: gmail@example.com|password";
+        throw Object.assign(new Error(error), { error, invalidLines });
+      }
+      normalizedAccounts = parsed;
+    }
+
+    return super.startJob({
+      parsedAccounts: normalizedAccounts,
+      concurrency,
+      browser,
+    });
   }
 
   async runManualFollowup(job, account, workerId, context, successPromise) {
@@ -211,13 +231,13 @@ export class QoderBulkImportManager extends BaseBulkImportManager {
     job.manualFollowups.add(followupPromise);
   }
 
-  async processAccount(job, account, workerId) {
-    if (job.cancelRequested || !job.browser) {
+  async processAccount(job, account, workerId, browser) {
+    if (job.cancelRequested || !browser) {
       this.finalizeAccount(account, "cancelled", { error: "Job cancelled" });
       return;
     }
 
-    const { context, page } = await createFreshContext(job.browser);
+    const { context, page } = await createFreshContext(browser);
     account.runtimeSession = { context, page };
     let pollController = null;
 
