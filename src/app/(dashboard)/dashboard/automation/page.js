@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, KiroOAuthWrapper, OAuthModal } from "@/shared/components";
+import { Badge, Button, BulkAccountAutomationModal, Card, CardSkeleton, CodeBuddyCnAutomationModal, KiroOAuthWrapper, OAuthModal } from "@/shared/components";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { isProviderDisabledFromConnections } from "@/shared/utils/providerConnectionStats";
 
@@ -274,6 +274,62 @@ function CodeBuddyAutomationPanel({ providerInfo, onRefresh, disabled = false })
   );
 }
 
+function CodeBuddyCnAutomationPanel({ providerInfo, onRefresh, disabled = false }) {
+  const [isOAuthOpen, setIsOAuthOpen] = useState(false);
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
+
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => setIsOAuthOpen(true)}
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
+            <span className="material-symbols-outlined text-[20px] text-primary">login</span>
+            OAuth Login
+          </span>
+          <span className="text-xs leading-relaxed text-text-muted">
+            Open the CodeBuddy CN device OAuth flow and save the returned credentials.
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsBulkOpen(true)}
+          disabled={disabled}
+          className={getAutomationCardClasses(disabled)}
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-text-main">
+            <span className="material-symbols-outlined text-[20px] text-primary">group_add</span>
+            5sim Bulk Registration
+          </span>
+          <span className="text-xs leading-relaxed text-text-muted">
+            Register CodeBuddy CN accounts with isolated Camoufox workers and your 5sim API key.
+          </span>
+        </button>
+      </div>
+      <OAuthModal
+        isOpen={isOAuthOpen && !disabled}
+        provider="codebuddy-cn"
+        providerInfo={providerInfo}
+        onSuccess={() => {
+          onRefresh?.();
+          setIsOAuthOpen(false);
+        }}
+        onClose={() => setIsOAuthOpen(false)}
+      />
+      <CodeBuddyCnAutomationModal
+        isOpen={isBulkOpen && !disabled}
+        disabled={disabled}
+        onSuccess={onRefresh}
+        onClose={() => setIsBulkOpen(false)}
+      />
+    </>
+  );
+}
+
 function QoderAutomationPanel({ providerInfo, onRefresh, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
@@ -348,6 +404,14 @@ const AUTOMATION_PROVIDERS = [
     description: "Bulk GSuite automation and browser OAuth polling login.",
     supportedModes: ["bulk-account", "device-oauth"],
     component: CodeBuddyAutomationPanel,
+  },
+  {
+    id: "codebuddy-cn",
+    label: "CodeBuddy CN",
+    icon: "smart_toy",
+    description: "Device OAuth and 5sim-assisted bulk registration automation.",
+    supportedModes: ["oauth", "5sim-bulk"],
+    component: CodeBuddyCnAutomationPanel,
   },
   {
     id: "qoder",

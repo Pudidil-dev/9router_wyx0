@@ -19,6 +19,7 @@
 - Keep provider-detail bulk connection actions scoped to the selected connection IDs, and require confirmation before destructive bulk actions.
 - Present Camoufox as the single automation runtime in dashboard flows; do not expose browser-runtime selection controls.
 - Keep `/api/system/capacity` limited to coarse server CPU/RAM capacity data for local worker recommendations; do not expose sensitive host details.
+- Keep CodeBuddy CN out of the generic OAuth Providers section: its provider detail deep-links to the dedicated Automation tab, where OAuth and 5sim bulk registration remain separate modes.
 - Do not silently change `/v1/*` compatibility semantics without focused regression tests.
 
 ## Work Guidance

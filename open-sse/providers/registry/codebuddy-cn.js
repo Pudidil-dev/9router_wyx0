@@ -1,7 +1,7 @@
 export default {
   id: "codebuddy-cn",
   hidden: false,
-  priority: 90,
+  priority: 26,
   display: {
     name: "CodeBuddy CN",
     icon: "smart_toy",
@@ -11,7 +11,7 @@ export default {
       signupUrl: "https://copilot.tencent.com",
     },
   },
-  category: "oauth",
+  category: "free",
   transport: {
     baseUrl: "https://copilot.tencent.com/v2/chat/completions",
     forceStream: true,
