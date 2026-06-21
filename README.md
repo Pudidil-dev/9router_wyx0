@@ -4,7 +4,7 @@ WYx0 fork of 9Router focused on provider automation, multi-account workflows, an
 
 This repository is forked from [decolua/9router](https://github.com/decolua/9router). The upstream project remains the base AI router. This fork documents and ships the WYx0 changes on top: Kiro automation, CodeBuddy automation, quota tracker upgrades, and small dashboard quality-of-life updates.
 
-This branch is synced with upstream 9Router `v0.5.4` while preserving WYx0 automation.
+This branch tracks upstream 9Router and is synced through `v0.5.8` while preserving WYx0 automation. See **Upstream Synchronization Status** below for the per-batch port log and deferred items.
 
 ## Focus
 
@@ -145,7 +145,49 @@ This fork's current PR scope is intentionally centered on WYx0 changes:
 - Preserve Gemini Web cookie onboarding and provider branding.
 - Preserve CodeBuddy quota usage support.
 - Preserve quota tracker pagination and bulk/single view behavior.
-- Sync upstream 9Router v0.5.4 fixes/features while keeping fork metadata and packaging.
+- Sync upstream 9Router fixes/features while keeping fork metadata and packaging. See **Upstream Synchronization Status** below for what is ported vs. deferred per release.
+
+## Upstream Synchronization Status
+
+Last sync: **upstream `v0.5.8` (`0c47c891`)**. Sync method: selective per-commit cherry-pick/port onto the WYx0 line (not a wholesale merge), preserving all WYx0-only features. Baseline pre-sync point: `901eeab7` (WYx0 `v0.5.4` + both automation fixes).
+
+### Ported from upstream v0.5.4 → v0.5.8
+
+**Security**
+- `GHSA-6mwv-4mrm-5p3m` Kiro region SSRF validation (`assertValidAwsRegion` guard in all OIDC/token/profile endpoints + api-key route body-reflection hardening).
+- General SSRF guard for remote validate requests and sensitive settings protection.
+
+**Bugfixes (isolated, no WYx0 clash)**
+- Cloudflare-AI content-part flattening (avoid `oneOf` 400).
+- Translator tool normalization to Anthropic-native shape for non-Anthropic providers.
+- Claude Haiku unsupported adaptive-thinking / `output_config.effort` handling.
+- Gemini `pattern` preservation in Antigravity tool schema translation.
+- Combo/Fusion Anthropic-style tool-message flattening in panel calls.
+- Mimo-free Chrome User-Agent rotation (anti-abuse bypass).
+- Anthropic-compatible connection validation via `POST /v1/messages`.
+- Perplexity key validation via `/v1/models`.
+- `next.config` route entry for the responses endpoint.
+- Codex custom-tool preservation during request normalization.
+- CLI tool settings tolerate JSONC configs.
+
+**Features**
+- OpenCode-Go endpoint alignment.
+- Antigravity native image generation (executor + image provider handler + registry `kind:image`).
+- Ponytail Claude thinking-signature validator (`claudeSignature.js`) — preserves valid signatures for native Claude, drops invalid blocks; non-Anthropic still uses the safe default. Orthogonal to WYx0's RTK ponytail prompt-injection filter (both coexist).
+- CodeBuddy CN Tencent billing usage handler (`services/usage/codebuddy-cn.js`) — replaces the inline probe-URL handler with proper refill/bonus credit-package separation; keeps WYx0's `providerSpecificDataPatch` enrichment.
+
+### Deferred (needs dedicated session — do NOT blind-port)
+
+- **Headroom proxy lifecycle + Docker sidecar** (`b55cf36d`, `50ed79fe`). Bundled with a deeper architectural change (`resolveTransport` multi-endpoint + `runtimeTransport` in executors) that conflicts with WYx0's CodeBuddy-aware `default.js`/`chatCore.js`. Porting requires threading `runtimeTransport` into WYx0's executor without breaking CodeBuddy auth + the working chat path, then manual verification of several providers.
+- **Upstream CodeBuddy CN provider base** (`efd20be8`) and the `cbcn` alias baseline (`791705ae`). WYx0 already ships a richer CN impl; only the quota handler was ported (above). The base provider registry + alias were intentionally kept as WYx0's.
+- **API-key management UI / endpoint page refactor** (`25e8723a`) and **custom-models-by-provider-scope** (`707a9155`). Both touch heavily-diverged dashboard files (`EndpointPageClient.js`, `providerCustomModels.js`); defer until those panels are reconciled.
+
+### Sync method (for future updates)
+
+This fork diverges substantially from upstream (~125 WYx0-unique files, ~290 modified-in-both). **Do not run a wholesale `git merge upstream/master`** — it produces 30+ conflicts dominated by the CodeBuddy CN feature-clash. Instead:
+1. Fetch upstream and triage each new commit by category (security / safe-bugfix / feature-with-overlap / metadata).
+2. Cherry-pick or manually port each item; for features that overlap WYx0 work, compare implementations and keep whichever is better (WYx0's CodeBuddy-aware paths usually win).
+3. After each batch, run `cd tests && npx vitest run` and confirm the failing-file set is unchanged from the prior baseline (pre-existing WYx0 test debt, not new regressions).
 
 ## Upstream Synchronization & Preservation Checklist (For AI Agents & Developers)
 
