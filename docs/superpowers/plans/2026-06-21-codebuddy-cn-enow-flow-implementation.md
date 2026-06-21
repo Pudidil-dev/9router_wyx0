@@ -76,3 +76,23 @@
 4. Run `npm run build` and confirm exit code 0.
 5. Perform one dashboard live test with a user-controlled account and record the observed steps without logging credentials, cookies, phone numbers, OTPs, or API keys.
 6. Commit only the CBCN lifecycle files and tests; preserve unrelated working-tree changes.
+
+## Task 6: Expose CodeBuddy CN as a dedicated automation provider
+
+**Files:**
+- Modify: `open-sse/providers/registry/codebuddy-cn.js`
+- Modify: `src/app/(dashboard)/dashboard/providers/[id]/page.js`
+- Modify: `src/app/(dashboard)/dashboard/automation/page.js`
+- Create: `src/shared/components/CodeBuddyCnAutomationModal.js`
+- Modify: `src/shared/components/index.js`
+- Create: `tests/unit/codebuddy-cn-dashboard-integration.test.js`
+
+1. Add failing metadata assertions that CodeBuddy CN belongs to the Free Tier provider group and sorts immediately after regular CodeBuddy.
+2. Add a failing dashboard integration test for the provider-detail deep link and Automation provider registration.
+3. Change only CodeBuddy CN category/priority metadata; do not re-enable regular CodeBuddy.
+4. Add CodeBuddy CN to the detail-page automation provider set.
+5. Add a CodeBuddy CN automation panel immediately after regular CodeBuddy with separate OAuth and 5sim bulk cards.
+6. Implement a dedicated 5sim modal that starts, polls, resumes, previews, and cancels `/api/tools/automation/cbcn/*` jobs.
+7. Keep secrets out of rendered activity and persisted browser storage; persist only the active job ID needed for resume.
+8. Run the dashboard integration, CBCN route, manager, and lifecycle tests.
+9. Run `npm run build`, then inspect the provider list, detail link, and both automation modes in the browser.
