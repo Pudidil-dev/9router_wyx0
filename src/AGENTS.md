@@ -17,6 +17,7 @@
 - Preserve the boundary between application routes in `src/app`, application orchestration in `src/sse`, and provider-neutral runtime behavior in `open-sse`.
 - Reuse shared constants, stores, hooks, and UI components instead of duplicating cross-dashboard behavior.
 - Shared bulk automation components may expose provider-specific copy, worker limits, and device-based worker recommendations; Camoufox is the single browser runtime and bulk workers run headless by default.
+- Keep CodeBuddy CN account activation and gateway-probation handling in provider-local OAuth services; routes and dashboard components consume sanitized job state only.
 - Document durable changes to source ownership or runtime flow in this file and, when architectural, in `docs/ARCHITECTURE.md`.
 
 ## Work Guidance

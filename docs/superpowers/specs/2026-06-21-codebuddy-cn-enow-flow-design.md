@@ -4,7 +4,7 @@
 
 Make the CodeBuddy CN automation follow the reconstructed `enow-reverse` lifecycle rather than stopping after basic phone/OTP login:
 
-`login -> account activation -> gateway state -> API key -> saved connection -> credit refresh`
+`login -> API key -> gateway state -> credit refresh -> best-effort activation -> saved connection`
 
 `codebuddy-cn` remains separate from the permanently disabled regular `codebuddy` provider.
 
@@ -12,10 +12,10 @@ Make the CodeBuddy CN automation follow the reconstructed `enow-reverse` lifecyc
 
 - Launch the existing isolated Camoufox session with CN locale and region handling.
 - Follow the recovered login choices: select the intended login route, avoid unrelated WeChat/QQ paths, and support the recovered HK 5sim route when automatic SMS registration is selected.
-- After credentials are visible, determine whether the account needs the recovered CodeBuddy CN activation flow.
+- After credentials are visible, create the API key, capture gateway status, and refresh credits before determining whether the account needs the recovered CodeBuddy CN activation flow, matching the reconstructed enow entrypoint.
 - Use the browser activation path first, including the recovered invite/free-tier controls, then use the recovered API activation endpoint as a fallback when its request shape is available.
 - Persist activation and gateway outcomes with the saved credentials. Match enow's best-effort behavior: activation failures become `activation_skipped`, and a gateway authentication block becomes persisted probation metadata without discarding otherwise valid credentials.
-- Create an API key only after activation and gateway checks succeed, then save the connection and refresh credit metadata.
+- Save the connection after the recovered gateway, credit, and best-effort activation steps complete.
 
 ## Boundary Conditions
 

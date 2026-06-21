@@ -2,7 +2,7 @@
 
 **Goal:** Align the existing CodeBuddy CN automation with the reconstructed enow lifecycle while preserving valid credentials when activation or gateway checks are only best-effort.
 
-**Architecture:** Keep the job manager responsible for orchestration and move CN account-state requests and activation decisions into a small provider-local lifecycle service. The manager will call that service after browser credentials appear, persist the resulting activation/gateway metadata, then create/save the API key and refresh credits using the existing path.
+**Architecture:** Keep the job manager responsible for orchestration and move CN account-state requests and activation decisions into a small provider-local lifecycle service. After browser credentials appear, the manager follows enow's recovered order: create the API key, check gateway state, fetch credits, run best-effort activation, persist the resulting metadata, and save the connection.
 
 **Tech stack:** ES modules, Camoufox transport through the existing launcher, Next.js 16 routes, Vitest.
 
@@ -47,7 +47,7 @@
 - Modify: `tests/unit/codebuddy-cn-automation-routes.test.js` only if the sanitized job contract changes
 
 1. Write failing orchestration tests for the exact ordering:
-   `credentials captured -> quota/account probe -> activation -> gateway check -> API key -> save`.
+   `credentials captured -> API key -> gateway check -> quota probe -> best-effort activation -> save`.
 2. Cover enow's non-blocking behavior: an activation exception logs `activation_skipped`, saves the recovered credentials, and persists activation metadata.
 3. Cover gateway probation: save valid credentials with `gatewayStatus` metadata and surface a warning step without reporting a false hard failure.
 4. Add cancellation assertions before activation, before API-key creation, and before saving so a cancelled job cannot produce a late connection.

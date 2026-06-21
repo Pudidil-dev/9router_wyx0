@@ -4,12 +4,17 @@ import path from "node:path";
 import { DATA_DIR } from "../../dataDir.js";
 import { createAutomationBrowserLauncher } from "./automationBrowserLauncher.js";
 import { DEFAULT_AUTOMATION_BROWSER, normalizeAutomationBrowser } from "@/shared/constants/automationBrowsers";
-import { AUTOMATION_CONTEXT_OPTIONS, AUTOMATION_STEALTH_INIT_SCRIPT } from "./kiroBulkImportManager.js";
+import { createFreshContext } from "./automation/baseBulkImportManager.js";
 import { getUsageForProvider } from "open-sse/services/usage.js";
 import {
   buildCodeBuddyCnProviderMetadata,
   CODEBUDDY_CN_PROBE_URL,
 } from "open-sse/services/codebuddyCn.js";
+import {
+  CN_DEFAULT_REGION,
+  CN_FALLBACK_REGION,
+} from "open-sse/executors/codebuddy-cn/config.js";
+import { runCodeBuddyCnLifecycle } from "./codebuddyCnLifecycle.js";
 
 const CODEBUDDY_CN_AUTOMATION_DIR = path.join(DATA_DIR, "codebuddy-cn-automation");
 const CODEBUDDY_CN_META_FILE = path.join(CODEBUDDY_CN_AUTOMATION_DIR, "meta.json");
@@ -24,11 +29,21 @@ const DEFAULT_CONCURRENCY = 2;
 const MIN_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 8;
 const FIVE_SIM_BASE_URL = "https://5sim.net/v1/user";
-const FIVE_SIM_DEFAULT_COUNTRY = "china";
-const FIVE_SIM_DEFAULT_OPERATOR = "any";
-const FIVE_SIM_DEFAULT_PRODUCT = "other";
+const FIVE_SIM_DEFAULT_COUNTRY = "hongkong";
+const FIVE_SIM_DEFAULT_OPERATOR = "virtual54";
+const FIVE_SIM_DEFAULT_PRODUCT = "codebuddy";
 const FIVE_SIM_POLL_INTERVAL_MS = 5_000;
 const CODEBUDDY_CN_SMS_ENDPOINT = "https://www.codebuddy.cn/auth/realms/copilot/sms/authentication-code";
+const CODEBUDDY_CN_LIFECYCLE_METADATA_KEYS = [
+  "activationStatus",
+  "activationMethod",
+  "activationError",
+  "gatewayAuthenticated",
+  "gatewayBlocked",
+  "gatewayProbation",
+  "gatewayMessage",
+  "codebuddyCnRegion",
+];
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -317,7 +332,7 @@ async function waitForFiveSimOtp(job, orderId, onStep) {
     onStep?.(
       "waiting_for_5sim_otp",
       code
-        ? `OTP received from 5sim: ${code}`
+        ? "OTP received from 5sim"
         : `Waiting for OTP from 5sim (${String(order?.status || "pending").toLowerCase()})`
     );
 
@@ -450,6 +465,30 @@ async function clickPrimaryCodeBuddyCnLoginButton(page) {
   }
 
   return await clickButtonByText(page, ["登录", "login", "sign in"]).catch(() => false);
+}
+
+async function selectCodeBuddyCnRegion(page) {
+  if (!page?.locator) return { selected: false, region: null };
+
+  const selector = page.locator("[data-testid='region-select'], select[name='region']");
+  if (!await selector.count().catch(() => 0)) {
+    return { selected: false, region: null };
+  }
+
+  let region = CN_DEFAULT_REGION;
+  try {
+    await selector.selectOption(CN_DEFAULT_REGION);
+  } catch {
+    region = CN_FALLBACK_REGION;
+    await selector.selectOption(CN_FALLBACK_REGION);
+  }
+
+  const confirm = page.locator("button:has-text('确认'), button:has-text('确定'), button:has-text('Continue')");
+  if (await confirm.count().catch(() => 0)) {
+    await confirm.first().click().catch(() => null);
+  }
+  await page.waitForTimeout?.(2_000);
+  return { selected: true, region };
 }
 
 function getCodeBuddyCnLoginFrame(page) {
@@ -793,7 +832,7 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep) {
 
   const otp = await waitForFiveSimOtp(job, order.id, onStep);
 
-  onStep("submitting_otp", `OTP received: ${otp.code}`);
+  onStep("submitting_otp", "Submitting the OTP received from 5sim");
   const otpFilled = await fillOtpInput(loginSurface, otp.code);
   if (!otpFilled) {
     throw new Error("Found OTP from 5sim but could not locate a CodeBuddy CN OTP input");
@@ -905,15 +944,21 @@ function getEffectiveAutomationCount({ accounts = [], count = 0, fiveSimApiKey =
   return String(fiveSimApiKey || "").trim() ? 1 : 0;
 }
 
-async function defaultBrowserLauncher(browser = DEFAULT_AUTOMATION_BROWSER) {
-  return await createAutomationBrowserLauncher(browser, { headless: false })();
+function mergeCodeBuddyCnUsageMetadata(providerSpecificData = {}, usage = {}) {
+  const merged = {
+    ...providerSpecificData,
+    ...(usage?.providerSpecificDataPatch || {}),
+  };
+  for (const key of CODEBUDDY_CN_LIFECYCLE_METADATA_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(providerSpecificData, key)) {
+      merged[key] = providerSpecificData[key];
+    }
+  }
+  return merged;
 }
 
-async function createFreshContext(browser) {
-  const context = await browser.newContext(AUTOMATION_CONTEXT_OPTIONS);
-  await context.addInitScript?.(AUTOMATION_STEALTH_INIT_SCRIPT).catch(() => null);
-  const page = await context.newPage();
-  return { context, page };
+async function defaultBrowserLauncher(browser = DEFAULT_AUTOMATION_BROWSER) {
+  return await createAutomationBrowserLauncher(browser, { headless: true })();
 }
 
 async function defaultSaveConnection(account) {
@@ -960,10 +1005,7 @@ async function defaultSaveConnection(account) {
     });
     if (usage?.providerSpecificDataPatch) {
       await updateProviderConnection(connection.id, {
-        providerSpecificData: {
-          ...providerSpecificData,
-          ...usage.providerSpecificDataPatch,
-        },
+        providerSpecificData: mergeCodeBuddyCnUsageMetadata(providerSpecificData, usage),
       });
     }
   } catch {
@@ -1093,10 +1135,16 @@ export class CodeBuddyCnAutomationManager {
   constructor({
     browserLauncher = defaultBrowserLauncher,
     saveConnection = defaultSaveConnection,
+    lifecycleRunner = runCodeBuddyCnLifecycle,
+    createApiKey = createCodeBuddyCnApiKeyViaPage,
+    usageLoader = getUsageForProvider,
     storageName = "codebuddy-cn-automation",
   } = {}) {
     this.browserLauncher = browserLauncher;
     this.saveConnection = saveConnection;
+    this.lifecycleRunner = lifecycleRunner;
+    this.createApiKey = createApiKey;
+    this.usageLoader = usageLoader;
     this.storageDir = path.join(DATA_DIR, storageName);
     this.metaFile = path.join(this.storageDir, "meta.json");
     this.jobs = new Map();
@@ -1369,6 +1417,64 @@ export class CodeBuddyCnAutomationManager {
     }
   }
 
+  async finishAuthenticatedAccount({ job, account, page, extracted }) {
+    if (job.cancelRequested) throw new Error("Job cancelled");
+
+    account.accessToken = extracted.accessToken || account.accessToken;
+    account.jwtToken = extracted.jwtToken || account.jwtToken;
+    account.apiKey = extracted.apiKey || account.apiKey;
+    account.cookiesJson = extracted.cookiesJson || account.cookiesJson;
+    account.hasCredentials = true;
+
+    const selectedRegion = await selectCodeBuddyCnRegion(page).catch(() => ({ selected: false, region: null }));
+    if (selectedRegion.selected) {
+      this.setAccountStep(account, "region_selected", `Selected CodeBuddy CN region: ${selectedRegion.region}`);
+    }
+
+    if (!account.apiKey) {
+      this.setAccountStep(account, "creating_codebuddy_cn_api_key", "Trying to create CodeBuddy CN API key from browser session");
+      account.apiKey = await this.createApiKey(page).catch(() => account.apiKey);
+    }
+
+    if (job.cancelRequested) throw new Error("Job cancelled");
+
+    const lifecycle = await this.lifecycleRunner({
+      page,
+      accessToken: account.accessToken,
+      inviteCode: job.options?.inviteCode,
+      beforeActivation: async () => {
+        this.setAccountStep(account, "fetching_codebuddy_cn_credits", "Fetching CodeBuddy CN credits");
+        const usage = await this.usageLoader({
+          provider: "codebuddy-cn",
+          apiKey: account.apiKey,
+          accessToken: account.accessToken,
+          idToken: account.jwtToken,
+          providerSpecificData: account.providerSpecificData || {},
+        }).catch(() => null);
+        account.providerSpecificData = mergeCodeBuddyCnUsageMetadata(account.providerSpecificData || {}, usage || {});
+        if (job.cancelRequested) throw new Error("Job cancelled");
+      },
+      onStep: (step, message) => this.setAccountStep(account, step, message),
+    });
+
+    account.providerSpecificData = {
+      ...(account.providerSpecificData || {}),
+      activationStatus: lifecycle.activation?.status || "not_applicable",
+      activationMethod: lifecycle.activation?.method || undefined,
+      activationError: lifecycle.activation?.error || undefined,
+      gatewayAuthenticated: lifecycle.gateway?.authenticated === true,
+      gatewayBlocked: lifecycle.gateway?.blocked === true,
+      gatewayProbation: lifecycle.gateway?.probation === true,
+      gatewayMessage: lifecycle.gateway?.message || undefined,
+      codebuddyCnRegion: selectedRegion.region || undefined,
+    };
+
+    if (job.cancelRequested) throw new Error("Job cancelled");
+
+    this.setAccountStep(account, "saving_connection", "Saving CodeBuddy CN connection from captured browser credentials");
+    return await this.saveConnection(account);
+  }
+
   async processAccount(job, account, workerId) {
     if (job.cancelRequested) {
       this.finalizeAccount(account, "cancelled", {
@@ -1424,19 +1530,12 @@ export class CodeBuddyCnAutomationManager {
         });
       }
 
-      account.accessToken = extracted.accessToken || account.accessToken;
-      account.jwtToken = extracted.jwtToken || account.jwtToken;
-      account.apiKey = extracted.apiKey || account.apiKey;
-      account.cookiesJson = extracted.cookiesJson || account.cookiesJson;
-      account.hasCredentials = true;
-
-      if (!account.apiKey) {
-        this.setAccountStep(account, "creating_codebuddy_cn_api_key", "Trying to create CodeBuddy CN API key from browser session");
-        account.apiKey = await createCodeBuddyCnApiKeyViaPage(page).catch(() => account.apiKey);
-      }
-
-      this.setAccountStep(account, "saving_connection", "Saving CodeBuddy CN connection from captured browser credentials");
-      const { connection } = await this.saveConnection(account);
+      const { connection } = await this.finishAuthenticatedAccount({
+        job,
+        account,
+        page,
+        extracted,
+      });
       this.finalizeAccount(account, "success", {
         connectionId: connection.id,
         step: "connection_saved",
@@ -1533,4 +1632,6 @@ export const __test__ = {
   getEffectiveAutomationCount,
   hasCodeBuddyCnAuthInputs,
   getCodeBuddyCnLoginFrame,
+  selectCodeBuddyCnRegion,
+  mergeCodeBuddyCnUsageMetadata,
 };

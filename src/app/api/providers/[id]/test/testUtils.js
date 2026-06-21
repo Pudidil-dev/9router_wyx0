@@ -21,6 +21,11 @@ import {
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 import { buildAutomationMetadataOnError, buildAutomationMetadataOnSuccess, classifyProviderError } from "@/lib/providerAutomation/accountState";
+import {
+  buildCodeBuddyCnAuthHeaders,
+  buildCodeBuddyCnProviderMetadata,
+  CODEBUDDY_CN_PROBE_URL,
+} from "open-sse/services/codebuddyCn.js";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -421,6 +426,25 @@ async function testCodeBuddyApiKeyConnection(connection, effectiveProxy = null) 
   }
 
   return { valid: false, error: `API returned ${response.status}` };
+}
+
+async function testCodeBuddyCnConnection(connection, effectiveProxy = null) {
+  const response = await fetchWithConnectionProxy(CODEBUDDY_CN_PROBE_URL, {
+    method: "GET",
+    headers: buildCodeBuddyCnAuthHeaders(connection),
+  }, effectiveProxy);
+  const text = response.ok ? "" : await response.text().catch(() => "");
+  const valid = response.status !== 401 && response.status !== 403 && response.ok;
+  return {
+    valid,
+    error: valid ? null : (text || `CodeBuddy CN returned ${response.status}`),
+    automationProviderSpecificData: valid
+      ? {
+          ...buildCodeBuddyCnProviderMetadata(connection),
+          creditSource: "codebuddy-cn",
+        }
+      : null,
+  };
 }
 
 async function testApiKeyConnection(connection, effectiveProxy = null) {
@@ -828,7 +852,9 @@ export async function testSingleConnection(id) {
   const start = Date.now();
   let result;
 
-  if (connection.authType === "apikey" || connection.authType === "cookie") {
+  if (connection.provider === "codebuddy-cn") {
+    result = await testCodeBuddyCnConnection(connection, effectiveProxy);
+  } else if (connection.authType === "apikey" || connection.authType === "cookie") {
     result = await testApiKeyConnection(connection, effectiveProxy);
   } else {
     result = await testOAuthConnection(connection, effectiveProxy);
