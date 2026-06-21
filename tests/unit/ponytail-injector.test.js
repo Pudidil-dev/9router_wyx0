@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { injectPonytail } from "@/../open-sse/rtk/ponytail.js";
-import { FORMATS } from "@/../open-sse/translator/formats.js";
+import { injectPonytail } from "open-sse/rtk/ponytail.js";
+import { FORMATS } from "open-sse/translator/formats.js";
 
 describe("ponytail injector", () => {
   it("injects into OpenAI-style messages", () => {
