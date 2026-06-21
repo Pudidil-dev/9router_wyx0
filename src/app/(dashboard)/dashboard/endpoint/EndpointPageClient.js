@@ -38,6 +38,18 @@ export default function APIPageClient({ machineId }) {
   const [cavemanLevel, setCavemanLevel] = useState("full");
   const [ponytailEnabled, setPonytailEnabled] = useState(false);
   const [ponytailLevel, setPonytailLevel] = useState("full");
+  
+  // Headroom state
+  const [headroomEnabled, setHeadroomEnabled] = useState(false);
+  const [headroomUrl, setHeadroomUrl] = useState("");
+  const [headroomStatus, setHeadroomStatus] = useState({
+    installed: false,
+    running: false,
+    python: false,
+    loading: false
+  });
+  const [showHeadroomModal, setShowHeadroomModal] = useState(false);
+  
   const [locale, setLocale] = useState("en");
 
   // Cloudflare Tunnel state
@@ -130,6 +142,7 @@ export default function APIPageClient({ machineId }) {
   useEffect(() => {
     fetchData();
     loadSettings();
+    checkHeadroomStatus();
   }, []);
 
   // Status poll: only while degraded (not yet reachable). Stop once healthy to avoid spam.
@@ -239,6 +252,8 @@ export default function APIPageClient({ machineId }) {
         setCavemanLevel(data.cavemanLevel || "full");
         setPonytailEnabled(!!data.ponytailEnabled);
         setPonytailLevel(data.ponytailLevel || "full");
+        setHeadroomEnabled(!!data.headroomEnabled);
+        setHeadroomUrl(data.headroomUrl || "http://localhost:8787");
       }
       if (statusRes.ok) {
         const data = await statusRes.json();
@@ -331,6 +346,89 @@ export default function APIPageClient({ machineId }) {
   const handlePonytailLevel = (level) => {
     setPonytailLevel(level);
     patchSetting({ ponytailLevel: level });
+  };
+
+  // ─── Headroom handlers ────────────────────────────────────────────────────
+  const checkHeadroomStatus = async () => {
+    setHeadroomStatus((prev) => ({ ...prev, loading: true }));
+    try {
+      const res = await fetch("/api/headroom/status");
+      if (res.ok) {
+        const data = await res.json();
+        setHeadroomStatus({
+          installed: data.installed || false,
+          running: data.running || false,
+          python: data.python || false,
+          loading: false,
+        });
+      } else {
+        // Endpoint doesn't exist or error - treat as not installed
+        setHeadroomStatus({
+          installed: false,
+          running: false,
+          python: false,
+          loading: false,
+        });
+      }
+    } catch {
+      // API not available - treat as not installed
+      setHeadroomStatus({
+        installed: false,
+        running: false,
+        python: false,
+        loading: false,
+      });
+    }
+  };
+
+  const handleHeadroomToggle = async (enabled) => {
+    setHeadroomEnabled(enabled);
+    patchSetting({ headroomEnabled: enabled });
+    
+    if (enabled && !headroomUrl) {
+      setShowHeadroomModal(true);
+    }
+  };
+
+  const handleHeadroomUrlChange = (url) => {
+    setHeadroomUrl(url);
+    patchSetting({ headroomUrl: url });
+  };
+
+  const handleHeadroomStart = async () => {
+    try {
+      const res = await fetch("/api/headroom/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: headroomUrl }),
+      });
+      
+      if (res.ok) {
+        await checkHeadroomStatus();
+      } else {
+        const data = await res.json();
+        console.error("Failed to start Headroom:", data.error);
+      }
+    } catch (error) {
+      console.error("Error starting Headroom:", error);
+    }
+  };
+
+  const handleHeadroomStop = async () => {
+    try {
+      const res = await fetch("/api/headroom/stop", {
+        method: "POST",
+      });
+      
+      if (res.ok) {
+        await checkHeadroomStatus();
+      } else {
+        const data = await res.json();
+        console.error("Failed to stop Headroom:", data.error);
+      }
+    } catch (error) {
+      console.error("Error stopping Headroom:", error);
+    }
   };
 
   const fetchData = async () => {
@@ -1058,6 +1156,64 @@ export default function APIPageClient({ machineId }) {
             onChange={() => handleRtkEnabled(!rtkEnabled)}
           />
         </div>
+        
+        {/* Headroom */}
+        <div className="flex items-center justify-between pt-4 pb-4 border-b border-border gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-medium">
+                Compress prompts{" "}
+                <a
+                  href="https://github.com/HeadroomAI/headroom"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-normal text-primary underline hover:opacity-80"
+                >
+                  (Headroom)
+                </a>
+              </p>
+              {headroomStatus.loading ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-text-muted">
+                  Checking…
+                </span>
+              ) : headroomStatus.running ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-success/20 text-success">
+                  Running
+                </span>
+              ) : headroomStatus.installed ? (
+                <span className="text-xs px-2 py-0.5 rounded bg-warning/20 text-warning">
+                  Stopped
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-text-muted">
+                  Not installed
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-text-muted mt-1">
+              Compress prompts via local proxy → 40-60% fewer input tokens
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {headroomStatus.installed && (
+              <button
+                onClick={() => {
+                  setShowHeadroomModal(true);
+                  checkHeadroomStatus();
+                }}
+                className="text-xs px-3 py-1.5 rounded border border-border text-text-main hover:bg-surface-2 transition-colors"
+              >
+                Setup
+              </button>
+            )}
+            <Toggle
+              checked={headroomEnabled && headroomStatus.running}
+              onChange={() => handleHeadroomToggle(!headroomEnabled)}
+              disabled={!headroomStatus.running}
+            />
+          </div>
+        </div>
+        
         <div className="flex items-center justify-between pt-4 gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
             <p className="font-medium">
@@ -1482,6 +1638,99 @@ export default function APIPageClient({ machineId }) {
             </Button>
             <Button onClick={() => setShowDisableTsModal(false)} variant="ghost" fullWidth disabled={tsLoading}>Cancel</Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Headroom Setup Modal */}
+      <Modal
+        isOpen={showHeadroomModal}
+        onClose={() => setShowHeadroomModal(false)}
+        title="Headroom Setup"
+      >
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="text-sm font-medium text-text-main mb-2 block">
+              Proxy URL
+            </label>
+            <Input
+              value={headroomUrl}
+              onChange={(e) => handleHeadroomUrlChange(e.target.value)}
+              placeholder="http://localhost:8787"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-text-muted mt-1">
+              Default: http://localhost:8787
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            {headroomStatus.running ? (
+              <button
+                onClick={handleHeadroomStop}
+                className="flex-1 px-4 py-2 rounded border border-warning text-warning hover:bg-warning/10 transition-colors"
+              >
+                Stop Proxy
+              </button>
+            ) : (
+              <button
+                onClick={handleHeadroomStart}
+                className="flex-1 px-4 py-2 rounded bg-success text-white hover:bg-success/90 transition-colors"
+              >
+                Start Proxy
+              </button>
+            )}
+            <button
+              onClick={checkHeadroomStatus}
+              className="px-4 py-2 rounded border border-border text-text-main hover:bg-surface-2 transition-colors"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {headroomStatus.loading ? (
+            <div className="text-sm text-text-muted text-center py-4">
+              Checking status...
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 p-3 rounded bg-surface-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-text-muted">Installed:</span>
+                <span className={headroomStatus.installed ? "text-success" : "text-warning"}>
+                  {headroomStatus.installed ? "Yes" : "No"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-text-muted">Running:</span>
+                <span className={headroomStatus.running ? "text-success" : "text-warning"}>
+                  {headroomStatus.running ? "Yes" : "No"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-text-muted">Python:</span>
+                <span className={headroomStatus.python ? "text-success" : "text-text-muted"}>
+                  {headroomStatus.python ? "Detected" : "Not found"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {!headroomStatus.installed && (
+            <div className="text-sm text-text-muted p-3 rounded bg-info/10 border border-info/20">
+              <p className="font-medium text-info mb-2">Installation:</p>
+              <p>
+                Headroom is not installed. Visit the{" "}
+                <a
+                  href="https://github.com/HeadroomAI/headroom"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline hover:opacity-80"
+                >
+                  GitHub repository
+                </a>{" "}
+                for installation instructions.
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
 
