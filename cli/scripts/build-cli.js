@@ -192,6 +192,30 @@ function ensureModuleInBundle(pkg) {
   console.log(`✅ Bundled ${pkg}`);
 }
 ensureModuleInBundle("sql.js");
+
+function ensureCamoufoxBundle() {
+  const dest = path.join(cliAppDir, "node_modules", "camoufox-js");
+  const candidates = [
+    path.join(rootDir, "node_modules", "camoufox-js"),
+    path.join(appDir, "node_modules", "camoufox-js"),
+  ];
+  const src = candidates.find((p) =>
+    fs.existsSync(path.join(p, "dist", "data-files", "territoryInfo.xml"))
+  );
+  if (!src) {
+    console.warn("⚠️  camoufox-js data-files missing — run `npx camoufox-js fetch` at repo root, then rebuild CLI");
+    ensureModuleInBundle("camoufox-js");
+    return;
+  }
+  if (fs.existsSync(dest)) {
+    fs.rmSync(dest, { recursive: true, force: true });
+  }
+  copyRecursive(src, dest);
+  console.log("✅ Bundled full camoufox-js (including fetch data-files)");
+}
+ensureCamoufoxBundle();
+ensureModuleInBundle("playwright-core");
+
 const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
 if (fs.existsSync(betterDir)) {
   fs.rmSync(betterDir, { recursive: true, force: true });
