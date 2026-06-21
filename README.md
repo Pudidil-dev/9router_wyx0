@@ -147,6 +147,32 @@ This fork's current PR scope is intentionally centered on WYx0 changes:
 - Preserve quota tracker pagination and bulk/single view behavior.
 - Sync upstream 9Router v0.5.4 fixes/features while keeping fork metadata and packaging.
 
+## Upstream Synchronization & Preservation Checklist (For AI Agents & Developers)
+
+> [!IMPORTANT]
+> When syncing with the upstream `decolua/9router` repository, you MUST preserve the following modifications. Do not overwrite or disable these components unless explicitly requested:
+>
+> 1. **Browser-Stealth Bulk Onboarding & Automation (Camoufox)**:
+>    * Do not replace `camoufox-js` with standard Playwright Chromium. All bulk login automations rely on Camoufox's stealth capabilities.
+>    * Preserve bulk managers & OAuth flows:
+>      * [baseBulkImportManager.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/oauth/services/automation/baseBulkImportManager.js) (durable state management)
+>      * [googleOAuth.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/oauth/services/automation/googleOAuth.js) (Google SSO handling)
+>      * [codebuddyCnAutomationManager.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/oauth/services/codebuddyCnAutomationManager.js) (CodeBuddy CN login automation)
+>      * [geminiWebAutoCapture.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/oauth/services/geminiWebAutoCapture.js) (Gemini Web auto cookie capture)
+>    * Ensure dashboard routes (`/dashboard/automation`) and supporting API routes (`/api/oauth/*`, `/api/tools/automation/*`) remain intact.
+> 2. **Built-in Proxy Scraper & Live Pool Management**:
+>    * Maintain the background proxy scraper scheduler in [proxyScraperScheduler.js](file:///d:/Project_Gabut/9router_wyx0/src/shared/services/proxyScraperScheduler.js) and sources in [sources.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/proxyScraper/sources.js).
+>    * Do not remove the live verification of scraped proxies in [proxyPoolsRepo.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/db/repos/proxyPoolsRepo.js) before database storage.
+> 3. **CodeBuddy Quota Tracking**:
+>    * CodeBuddy requires a web console cookie via the `/v2` usage endpoint for proper credit aggregation. Ensure that the "Quota Cookie" flow and parser in CodeBuddy usage helpers are not overwritten.
+> 4. **Database Merge Behavior**:
+>    * In [index.js](file:///d:/Project_Gabut/9router_wyx0/src/lib/db/index.js), ensure `mergeAccountsAndProxyPoolsFromDb` is preserved so users can merge backups without complete database wipes.
+> 5. **Isolated Coexistence Setup**:
+>    * Keep the package name as `wyxrouter` and the default port as `20129`.
+>    * Maintain isolated cookie configuration names in `.env.example` and the session parser (e.g. `wyx_auth_token`, `wyx_oidc_state`).
+>    * Keep the fast runtime startup script: `npm run wyx`.
+
 ## Upstream Credit
 
 9Router WYx0 builds on the original 9Router project by decolua. Keep upstream credit and license notices intact when redistributing or merging changes.
+
