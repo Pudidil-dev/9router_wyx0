@@ -262,6 +262,33 @@ const GOOGLE_ONBOARDING_MARKERS = [
   "pilih setelan anda",
 ];
 
+// Google's generic "Something went wrong" error page. It is shown during load
+// races (often transient) but also as a soft anti-bot block on freshly created
+// or suspicious accounts. It has no input field and no consent control, so it
+// falls through every handler in the main loop and used to spin for the full
+// shortTimeoutMs before being mislabelled needs_manual. We retry the "Try
+// again" button a bounded number of times, then fail the account honestly.
+const GOOGLE_GENERIC_ERROR_MARKERS = [
+  "something went wrong",
+  "terjadi kesalahan",
+  "maaf, terjadi kesalahan",
+  "try again",
+  "coba lagi",
+];
+
+const GOOGLE_GENERIC_ERROR_RETRY_LIMIT = 3;
+const GOOGLE_GENERIC_ERROR_RETRY_SELECTORS = [
+  'button:has-text("Try again")',
+  'button:has-text("Retry")',
+  'button:has-text("Coba lagi")',
+  'div[role="button"]:has-text("Try again")',
+  'div[role="button"]:has-text("Coba lagi")',
+  '#identifierNext button',
+  '#passwordNext button',
+  'button:has-text("Next")',
+  'button:has-text("Berikutnya")',
+];
+
 const GOOGLE_CONSENT_TEXT_PATTERN = /wants to access|ingin mengakses|akses ke akun google|choose what .* can access|grant .* access|akan mengizinkan .* mengakses|mengakses info tentang anda|login ke .*google akan mengizinkan/i;
 
 const KIRO_CALLBACK_PREFIX = "kiro://kiro.kiroAgent/authenticate-success";
@@ -737,6 +764,51 @@ async function handleGoogleOnboarding(page, pageText) {
   }
 
   return false;
+}
+
+// Detects Google's generic "Something went wrong" page and clicks "Try again".
+// Scoped to accounts.google.* because the "try again" marker is broad and must
+// not fire on a provider page (e.g. Qoder) that happens to reuse the copy.
+// Returns one of:
+//   { action: "retry" }    — clicked a retry control; the loop should continue
+//   { action: "exhausted" } — retried GOOGLE_GENERIC_ERROR_RETRY_LIMIT times and
+//                            the page still shows the error; caller should fail
+//   { action: null }       — not a generic error page; caller should continue
+// The retry counter is carried on `state` so it survives across loop ticks.
+async function handleGoogleGenericError(page, pageText, state) {
+  if (!state) return { action: null };
+  if (!isGoogleAuthPage(page)) {
+    state.genericErrorRetries = 0;
+    return { action: null };
+  }
+
+  // A genuine credential input means we moved past the error page (or never
+  // were on one); reset the counter so a later transient error can retry.
+  if (await hasGoogleCredentialInput(page)) {
+    state.genericErrorRetries = 0;
+    return { action: null };
+  }
+
+  const text = String(pageText || "");
+  if (!includesAny(text, GOOGLE_GENERIC_ERROR_MARKERS)) {
+    return { action: null };
+  }
+
+  const attempt = Number(state.genericErrorRetries || 0) + 1;
+  state.genericErrorRetries = attempt;
+
+  if (attempt > GOOGLE_GENERIC_ERROR_RETRY_LIMIT) {
+    return { action: "exhausted" };
+  }
+
+  const clicked = await clickFirstActionable(page, GOOGLE_GENERIC_ERROR_RETRY_SELECTORS);
+  if (clicked) {
+    await page.waitForTimeout(900);
+    return { action: "retry", attempt };
+  }
+
+  // No retry control to click — the page is stuck. Fail rather than spin.
+  return { action: "exhausted" };
 }
 
 async function selectNativeRegionOption(page) {
@@ -1456,6 +1528,7 @@ export async function runGoogleAccountAutomation({
   const credentialState = {
     emailSubmittedAt: 0,
     passwordSubmittedAt: 0,
+    genericErrorRetries: 0,
   };
   let qoderDeviceAuthReopened = false;
   let kiroCallbackWaitReported = false;
@@ -1564,6 +1637,25 @@ export async function runGoogleAccountAutomation({
       return {
         status: "failed_restricted",
         error: "Account is restricted, suspended, or banned. Skipping.",
+      };
+    }
+
+    const genericErrorResult = await handleGoogleGenericError(page, text, credentialState);
+    if (genericErrorResult.action === "retry") {
+      reportStep(
+        "retrying_google_generic_error",
+        `Google showed a "Something went wrong" page; clicked Try again (${genericErrorResult.attempt}/${GOOGLE_GENERIC_ERROR_RETRY_LIMIT})`
+      );
+      continue;
+    }
+    if (genericErrorResult.action === "exhausted") {
+      reportStep(
+        "google_generic_error_blocked",
+        `Google kept showing a "Something went wrong" page after ${GOOGLE_GENERIC_ERROR_RETRY_LIMIT} attempts; treating as a server-side block`
+      );
+      return {
+        status: "failed",
+        error: "Google blocked sign-in with a \"Something went wrong\" page. This is a server-side block on the account (rate limit or anti-bot); manual assist cannot fix it.",
       };
     }
 

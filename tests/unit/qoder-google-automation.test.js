@@ -711,4 +711,107 @@ describe("Qoder Google automation", () => {
       error: "Google rejected the supplied email or password.",
     });
   });
+
+  it("fails a Google 'Something went wrong' page after bounded retries instead of looping to needs_manual", async () => {
+    const steps = [];
+    // The page never recovers and exposes no retry control, so the handler
+    // exhausts its retry budget and returns an honest failure on the first
+    // detection rather than spinning for shortTimeoutMs.
+    const result = await runGoogleAccountAutomation({
+      page: createAutomationPage({
+        url: "https://accounts.google.com/signin/v2/sl/error",
+        text: "Something went wrong Sorry, something went wrong there. Try again.",
+      }),
+      authUrl: "https://accounts.google.com/signin/v2/sl/error",
+      email: "user@example.com",
+      password: "password",
+      successPromise: neverResolves(),
+      shortTimeoutMs: 4000,
+      serviceLabel: "Qoder",
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("Something went wrong");
+    expect(result.error).toContain("server-side block");
+    expect(steps).toContain("google_generic_error_blocked");
+    expect(steps).not.toContain("manual_assist_required");
+  });
+
+  it("retries Google 'Something went wrong' by clicking Try again, then succeeds when the page recovers", async () => {
+    let errorText = "Something went wrong Sorry, something went wrong there. Try again.";
+    let recovered = false;
+    let resolveSuccess;
+    const successPromise = new Promise((resolve) => { resolveSuccess = resolve; });
+
+    const tryAgainLocator = createLocator({
+      async count() { return recovered ? 0 : 1; },
+      async isVisible() { return !recovered; },
+      async isEnabled() { return true; },
+      async click() {
+        recovered = true;
+        errorText = "Sign in Use your Google Account.";
+        resolveSuccess({ tokens: { accessToken: "access-after-retry" } });
+      },
+    });
+
+    const page = createAutomationPage({
+      url: "https://accounts.google.com/signin/v2/sl/error",
+      text: errorText,
+    });
+    page.locator = (selector) => {
+      if (selector.includes("Try again")) return tryAgainLocator;
+      return createLocator();
+    };
+    // Keep the page text dynamic so the marker only matches while on the error page.
+    page.evaluate = async (fn) => {
+      const source = String(fn);
+      if (source.includes("document.body?.innerText")) return errorText;
+      return null;
+    };
+
+    const steps = [];
+    const result = await runGoogleAccountAutomation({
+      page,
+      authUrl: "https://accounts.google.com/signin/v2/sl/error",
+      email: "user@example.com",
+      password: "password",
+      successPromise,
+      shortTimeoutMs: 4000,
+      serviceLabel: "Qoder",
+      successStep: "qoder_token_received",
+      successMessage: "Qoder device token received",
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      tokens: { accessToken: "access-after-retry" },
+    });
+    expect(steps).toContain("retrying_google_generic_error");
+    expect(steps).toContain("qoder_token_received");
+    expect(steps).not.toContain("google_generic_error_blocked");
+  });
+
+  it("does not trigger the generic-error branch on a Qoder page that happens to say 'try again'", async () => {
+    const steps = [];
+    const result = await runGoogleAccountAutomation({
+      page: createAutomationPage({
+        url: "https://qoder.com/device/selectAccounts",
+        text: "Select an account. If sign-in failed, try again or pick another account.",
+      }),
+      authUrl: "https://qoder.com/device/selectAccounts",
+      email: "user@example.com",
+      password: "password",
+      successPromise: neverResolves(),
+      shortTimeoutMs: 1,
+      serviceLabel: "Qoder",
+      onStep: (step) => steps.push(step),
+    });
+
+    // Should fall through to the needs_manual timeout path, never the generic-error branch.
+    expect(result.status).toBe("needs_manual");
+    expect(steps).not.toContain("retrying_google_generic_error");
+    expect(steps).not.toContain("google_generic_error_blocked");
+  });
 });
