@@ -40,6 +40,11 @@ describe("CodeBuddy CN automation manager helpers", () => {
   it("normalizes phone numbers and extracts OTP codes", () => {
     expect(__test__.normalizePhoneNumber("852 9123 4567")).toBe("+85291234567");
     expect(__test__.normalizePhoneNumber("+852 9123 4567")).toBe("+85291234567");
+    expect(__test__.splitCodeBuddyCnPhoneForLogin("+852 5355 2982")).toEqual({
+      dialCode: "+852",
+      localNumber: "53552982",
+      fullNumber: "+85253552982",
+    });
     expect(__test__.extractOtpCodeFromText("Your CodeBuddy code is 483920")).toBe("483920");
     expect(__test__.extractOtpCodeFromText("no code here")).toBe("");
   });

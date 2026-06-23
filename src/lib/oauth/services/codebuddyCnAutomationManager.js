@@ -227,6 +227,28 @@ function normalizePhoneNumber(value) {
   return raw;
 }
 
+function normalizePhoneForInput(value) {
+  return String(value || "").replace(/[^\d+]/g, "");
+}
+
+function splitCodeBuddyCnPhoneForLogin(value) {
+  const normalized = normalizePhoneForInput(value);
+  for (const dialCode of ["+852", "+86"]) {
+    if (normalized.startsWith(dialCode)) {
+      return {
+        dialCode,
+        localNumber: normalized.slice(dialCode.length),
+        fullNumber: normalized,
+      };
+    }
+  }
+  return {
+    dialCode: null,
+    localNumber: normalized.replace(/^\+/, ""),
+    fullNumber: normalized,
+  };
+}
+
 function firstMeaningfulSmsText(sms = []) {
   if (!Array.isArray(sms)) return "";
   for (const item of sms) {
@@ -645,9 +667,57 @@ async function openCodeBuddyCnLoginUi(page) {
   return null;
 }
 
-async function fillPhoneInput(target, phoneNumber) {
-  // The phone input is in a nested iframe with specific selectors
+async function selectPhoneDialCode(target, dialCode) {
+  if (!dialCode) return true;
+  const alreadySelected = await target.evaluate((value) => {
+    const clean = String(value || "").trim();
+    const currentSelector = document.querySelector(".kc-country-selector, [role='combobox'], [class*='country']");
+    const currentSelectorText = currentSelector?.textContent || currentSelector?.value || "";
+    return currentSelectorText.includes(clean);
+  }, dialCode).catch(() => false);
+  if (alreadySelected) return true;
+
+  await target.evaluate(() => {
+    const openers = Array.from(document.querySelectorAll(".kc-country-selector, [role='combobox'], button, div, span"));
+    const opener = openers.find((element) => {
+      const text = String(element.textContent || element.getAttribute("aria-label") || "").trim();
+      const className = String(element.className || "");
+      return text.includes("+") || /country|area|phone-code|dial|kc-country/i.test(className);
+    });
+    opener?.click();
+  }).catch(() => null);
+  await wait(500);
+
   return await target.evaluate((value) => {
+    const clean = String(value || "").trim();
+    const options = Array.from(document.querySelectorAll(".kc-country-option, [role='option'], li, div, span"));
+    const option = options.find((element) => String(element.textContent || "").includes(clean));
+    if (!option) return false;
+    option.click();
+    return true;
+  }, dialCode).catch(() => false);
+}
+
+async function getPhoneValidationMessage(target) {
+  return await target.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll(".kc-feedback-text, .error, .error-message, [class*='error'], [class*='invalid'], [role='alert']"));
+    return candidates
+      .map((element) => String(element.textContent || "").trim())
+      .find(Boolean) || "";
+  }).catch(() => "");
+}
+
+async function fillPhoneInput(target, phoneNumber) {
+  const phoneParts = splitCodeBuddyCnPhoneForLogin(phoneNumber);
+  if (phoneParts.dialCode) {
+    const selected = await selectPhoneDialCode(target, phoneParts.dialCode);
+    if (!selected) {
+      throw new Error("CodeBuddy CN country code " + phoneParts.dialCode + " could not be selected");
+    }
+  }
+
+  // The phone input is in a nested iframe with specific selectors
+  const filled = await target.evaluate((value) => {
     const normalized = String(value || "").replace(/[^\d]/g, "");
     
     // Strategy 1: Try the exact selector we found
@@ -660,6 +730,7 @@ async function fillPhoneInput(target, phoneNumber) {
       phoneInput.value = normalized;
       phoneInput.dispatchEvent(new Event("input", { bubbles: true }));
       phoneInput.dispatchEvent(new Event("change", { bubbles: true }));
+      phoneInput.dispatchEvent(new Event("blur", { bubbles: true }));
       return true;
     }
     
@@ -681,11 +752,20 @@ async function fillPhoneInput(target, phoneNumber) {
         input.value = normalized;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.dispatchEvent(new Event("blur", { bubbles: true }));
         return true;
       }
     }
     return false;
-  }, phoneNumber).catch(() => false);
+  }, phoneParts.localNumber).catch(() => false);
+
+  if (!filled) return false;
+  await wait(500);
+  const validationMessage = await getPhoneValidationMessage(target);
+  if (/无效|invalid|错误|不正确|format/i.test(validationMessage)) {
+    throw new Error("CodeBuddy CN rejected the phone number format: " + validationMessage);
+  }
+  return true;
 }
 
 async function fillOtpInput(target, otpCode) {
@@ -1627,6 +1707,7 @@ export const __test__ = {
   buildSummary,
   buildLookupResponse,
   normalizePhoneNumber,
+  splitCodeBuddyCnPhoneForLogin,
   extractOtpCodeFromText,
   getFiveSimOrderConfig,
   getEffectiveAutomationCount,
