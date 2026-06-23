@@ -28,6 +28,7 @@
 - Provider bulk import managers should clear provider-specific interstitials, modals, and login gates before deciding a browser session is stuck or needs manual assist.
 - Provider automation must use isolated Camoufox sessions; bulk workers run headless and close only the affected worker context after callback capture while retaining redirect-header and navigation-event fallbacks.
 - CodeBuddy CN automation follows the recovered enow lifecycle: create the API key, probe credits and gateway state, run best-effort activation, then save credentials with activation and probation metadata; activation uncertainty must not discard otherwise valid credentials.
+- Keep 5sim client behavior centralized in `oauth/services/fiveSimClient.js`, including token validation, price/stock quote caching, OTP polling, and proxy-dispatched fetches.
 - Google automation must evaluate Google OAuth consent before credential inputs and directly probe its approval control; Google can retain a visible password field, localize the consent copy, and place the action in a fixed footer. Consent locator fallbacks must be short and force-enabled so one atypical Google page cannot stall a bulk worker.
 - After submitting a Google identifier or password, preserve a short transition cooldown before interacting with that same field again; Google can leave the old field visible while navigation is still in progress.
 - Bulk import cancellation must immediately finalize active accounts and prevent late browser callbacks from changing cancelled results or saving new credentials.

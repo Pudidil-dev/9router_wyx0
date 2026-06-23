@@ -21,6 +21,7 @@
 - Present Camoufox as the single automation runtime in dashboard flows; do not expose browser-runtime selection controls.
 - Keep `/api/system/capacity` limited to coarse server CPU/RAM capacity data for local worker recommendations; do not expose sensitive host details.
 - Keep CodeBuddy CN out of the generic OAuth Providers section: its provider detail deep-links to the dedicated Automation tab, where OAuth and 5sim bulk registration remain separate modes.
+- Keep CodeBuddy CN 5sim quote/check routes under the dedicated automation API surface and return sanitized balance, stock, affordability, and proxy-route metadata only.
 - Do not silently change `/v1/*` compatibility semantics without focused regression tests.
 
 ## Work Guidance

@@ -49,9 +49,11 @@ export default function CodeBuddyCnAutomationModal({
   const [operator, setOperator] = useState(DEFAULT_ROUTE.operator);
   const [product, setProduct] = useState(DEFAULT_ROUTE.product);
   const [job, setJob] = useState(null);
+  const [quote, setQuote] = useState(null);
   const [error, setError] = useState("");
   const [restoreNotice, setRestoreNotice] = useState("");
   const [starting, setStarting] = useState(false);
+  const [checkingQuote, setCheckingQuote] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const notifiedJobRef = useRef(null);
 
@@ -135,6 +137,43 @@ export default function CodeBuddyCnAutomationModal({
     if (job.summary?.success > 0) onSuccess?.();
   }, [job, onSuccess]);
 
+  const checkFiveSimQuote = async () => {
+    const parsedCount = Number.parseInt(count, 10);
+    if (!fiveSimApiKey.trim()) {
+      setError("Enter your 5sim API key.");
+      return null;
+    }
+    if (!Number.isFinite(parsedCount) || parsedCount < 1) {
+      setError("Account count must be at least 1.");
+      return null;
+    }
+
+    setCheckingQuote(true);
+    setError("");
+    try {
+      const response = await fetch("/api/tools/automation/cbcn/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: parsedCount,
+          fiveSimApiKey: fiveSimApiKey.trim(),
+          country: country.trim() || DEFAULT_ROUTE.country,
+          operator: operator.trim() || DEFAULT_ROUTE.operator,
+          product: product.trim() || DEFAULT_ROUTE.product,
+        }),
+      });
+      const payload = await readResponse(response, "Failed to check 5sim capacity");
+      setQuote(payload.quote || null);
+      return payload.quote || null;
+    } catch (quoteError) {
+      setQuote(null);
+      setError(quoteError.message);
+      return null;
+    } finally {
+      setCheckingQuote(false);
+    }
+  };
+
   const handleStart = async () => {
     const parsedCount = Number.parseInt(count, 10);
     const parsedConcurrent = Number.parseInt(concurrent, 10);
@@ -166,6 +205,7 @@ export default function CodeBuddyCnAutomationModal({
       const payload = await readResponse(response, "Failed to start CodeBuddy CN bulk registration");
       notifiedJobRef.current = null;
       rememberJob(payload.job);
+      setQuote(null);
       setFiveSimApiKey("");
     } catch (startError) {
       setError(startError.message);
@@ -195,6 +235,7 @@ export default function CodeBuddyCnAutomationModal({
 
   const handleClose = () => {
     setFiveSimApiKey("");
+    setQuote(null);
     setError("");
     onClose?.();
   };
@@ -202,6 +243,7 @@ export default function CodeBuddyCnAutomationModal({
   const resetJob = () => {
     notifiedJobRef.current = null;
     setRestoreNotice("");
+    setQuote(null);
     rememberJob(null);
   };
 
@@ -248,9 +290,12 @@ export default function CodeBuddyCnAutomationModal({
             <Input label="5sim Country" value={country} onChange={(event) => setCountry(event.target.value)} disabled={disabled || starting} />
             <Input label="5sim Operator" value={operator} onChange={(event) => setOperator(event.target.value)} disabled={disabled || starting} />
             <Input label="5sim Product" value={product} onChange={(event) => setProduct(event.target.value)} disabled={disabled || starting} />
-            <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-3">
-              <Button onClick={handleStart} loading={starting} disabled={disabled || !fiveSimApiKey.trim()} icon="play_arrow">
+            <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-3">
+              <Button onClick={handleStart} loading={starting} disabled={disabled || checkingQuote || !fiveSimApiKey.trim()} icon="play_arrow">
                 Start Bulk Registration
+              </Button>
+              <Button variant="secondary" onClick={checkFiveSimQuote} loading={checkingQuote} disabled={disabled || starting || !fiveSimApiKey.trim()} icon="calculate">
+                Check 5sim Capacity
               </Button>
               {job?.jobId && isTerminalJob(job.status) && (
                 <Button variant="secondary" onClick={resetJob} icon="refresh">
@@ -258,6 +303,23 @@ export default function CodeBuddyCnAutomationModal({
                 </Button>
               )}
             </div>
+            {quote && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-text-main sm:col-span-2 lg:col-span-3">
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span>Balance: <strong>{quote.balance}</strong></span>
+                  <span>Unit: <strong>{quote.unitCost ?? "—"}</strong></span>
+                  <span>Available: <strong>{quote.availableCount || 0}</strong></span>
+                  <span>Can buy: <strong>{quote.capacity || 0}</strong></span>
+                  <span>Route: <strong>{quote.proxyRoute || "direct"}</strong></span>
+                </div>
+                {!quote.canAffordRequested && (
+                  <p className="mt-2 text-amber-600 dark:text-amber-400">
+                    Requested {quote.requestedCount}; short by {quote.shortage}. Add 5sim balance or lower the account count.
+                  </p>
+                )}
+                {quote.noStockMessage && <p className="mt-2 text-amber-600 dark:text-amber-400">{quote.noStockMessage}</p>}
+              </div>
+            )}
           </div>
         )}
 
