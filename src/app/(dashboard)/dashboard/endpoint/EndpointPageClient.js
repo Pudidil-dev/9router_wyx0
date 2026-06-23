@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
-import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal, ExperimentalBadge } from "@/shared/components";
+import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { getCurrentLocale, onLocaleChange } from "@/i18n/runtime";
 import {
@@ -1386,7 +1386,6 @@ export default function APIPageClient({ machineId }) {
                   (Ponytail)
                 </a>
               </span>
-              <ExperimentalBadge size="full" />
             </p>
             <p className="text-sm text-text-muted">
               Bias the model toward minimal code: YAGNI, reuse stdlib, deletion over addition
