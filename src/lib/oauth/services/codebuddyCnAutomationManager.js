@@ -354,8 +354,8 @@ async function waitForFiveSimOtp(job, orderId, onStep) {
     onStep?.(
       "waiting_for_5sim_otp",
       code
-        ? "OTP received from 5sim"
-        : `Waiting for OTP from 5sim (${String(order?.status || "pending").toLowerCase()})`
+        ? "OTP SMS code received from 5sim"
+        : `Waiting for OTP SMS from 5sim (order status: ${String(order?.status || "pending").toLowerCase()})`
     );
 
     if (code) {
@@ -853,6 +853,50 @@ async function tryRequestOtpViaPage(page, phoneNumber) {
   return await codeBuddyCnRequestViaPage(page, "GET", url).catch(() => ({ status: 0, text: "" }));
 }
 
+async function clickCodeBuddyCnOtpRequestButton(loginSurface, page) {
+  const clickedFrameLocator = await clickFirstVisibleLocator(loginSurface, [
+    "input.code-btn",
+    "button.code-btn",
+    ".code-btn",
+    "input[type='button']",
+    "button:has-text('获取验证码')",
+    "button:has-text('发送验证码')",
+    "button:has-text('Get code')",
+    "button:has-text('Send code')",
+    "[role='button']:has-text('获取验证码')",
+    "[role='button']:has-text('发送验证码')",
+    "[role='button']:has-text('Send code')",
+  ]);
+  if (clickedFrameLocator) return { clicked: true, source: "auth_frame_locator" };
+
+  const clickedFrameDom = await loginSurface.evaluate(() => {
+    const sendBtn = document.querySelector('.code-btn') ||
+                    document.querySelector('input.code-btn') ||
+                    document.querySelector('button.code-btn') ||
+                    document.querySelector('input[type="button"]');
+    if (sendBtn) {
+      sendBtn.click();
+      return true;
+    }
+
+    const buttons = Array.from(document.querySelectorAll('button, input[type="button"], a, [role="button"]'));
+    for (const btn of buttons) {
+      const text = (btn.textContent || btn.value || '').trim().toLowerCase();
+      if (/(send|get|获取|发送|验证码)/i.test(text)) {
+        btn.click();
+        return true;
+      }
+    }
+    return false;
+  }).catch(() => false);
+  if (clickedFrameDom) return { clicked: true, source: "auth_frame_dom" };
+
+  const clickedMain = await clickButtonByText(page, ["send code", "send otp", "get code", "获取验证码", "发送验证码", "sms"]);
+  if (clickedMain) return { clicked: true, source: "main_page" };
+
+  return { clicked: false, source: null };
+}
+
 async function waitForBrowserCredentialsOrApiKey(job, page, onStep) {
   const deadline = Date.now() + (job.options.smsTimeoutMs || DEFAULT_MANUAL_TIMEOUT_MS);
 
@@ -912,40 +956,12 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep) {
     throw new Error("Could not locate the CodeBuddy CN phone number input");
   }
 
-  onStep("requesting_otp", `Requesting OTP for ${order.phone}`);
-  const requestResult = await tryRequestOtpViaPage(page, order.phone);
-  if (!requestResult || (requestResult.status !== 200 && requestResult.status !== 204)) {
-    // Try clicking the send OTP button in the nested iframe
-    const clicked = await loginSurface.evaluate(() => {
-      // Strategy 1: Exact selector for the send button
-      const sendBtn = document.querySelector('.code-btn') || 
-                      document.querySelector('input.code-btn') ||
-                      document.querySelector('button.code-btn');
-      if (sendBtn) {
-        sendBtn.click();
-        return true;
-      }
-      
-      // Strategy 2: Find by text content
-      const buttons = Array.from(document.querySelectorAll('button, input[type="button"], a'));
-      for (const btn of buttons) {
-        const text = (btn.textContent || btn.value || '').trim().toLowerCase();
-        if (/(send|get|获取|发送|验证码)/i.test(text)) {
-          btn.click();
-          return true;
-        }
-      }
-      return false;
-    }).catch(() => false);
-    
-    if (!clicked) {
-      // Fallback: try clicking on main page (old behavior)
-      const clickedMain = await clickButtonByText(page, ["send code", "send otp", "get code", "获取验证码", "发送验证码", "sms"]);
-      if (!clickedMain) {
-        throw new Error("Could not trigger the CodeBuddy CN OTP request button");
-      }
-    }
+  onStep("requesting_otp", `Clicking CodeBuddy CN OTP button for ${order.phone}`);
+  const requestResult = await clickCodeBuddyCnOtpRequestButton(loginSurface, page);
+  if (!requestResult.clicked) {
+    throw new Error("Could not trigger the CodeBuddy CN OTP request button");
   }
+  onStep("otp_requested", `Clicked CodeBuddy CN OTP button via ${requestResult.source}`);
 
   const otp = await waitForFiveSimOtp(job, order.id, onStep);
 
@@ -1746,6 +1762,7 @@ export const __test__ = {
   normalizePhoneNumber,
   splitCodeBuddyCnPhoneForLogin,
   selectPhoneDialCode,
+  clickCodeBuddyCnOtpRequestButton,
   extractOtpCodeFromText,
   getFiveSimOrderConfig,
   getEffectiveAutomationCount,

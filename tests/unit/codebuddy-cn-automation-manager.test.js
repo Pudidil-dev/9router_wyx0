@@ -91,6 +91,34 @@ describe("CodeBuddy CN automation manager helpers", () => {
     await expect(__test__.selectPhoneDialCode(scope, "+852")).resolves.toBe(false);
   });
 
+  function createOtpButtonScope({ visibleSelector = "input[type='button']" } = {}) {
+    const clicks = [];
+    return {
+      clicks,
+      locator: vi.fn((selector) => ({
+        first: () => ({
+          isVisible: async () => selector === visibleSelector,
+          click: async () => clicks.push(selector),
+        }),
+      })),
+      evaluate: vi.fn(async () => false),
+    };
+  }
+
+  it("clicks the CodeBuddy CN OTP button in the auth frame before polling 5sim", async () => {
+    const loginSurface = createOtpButtonScope();
+    const page = { evaluate: vi.fn(async () => false) };
+
+    await expect(__test__.clickCodeBuddyCnOtpRequestButton(loginSurface, page)).resolves.toEqual({
+      clicked: true,
+      source: "auth_frame_locator",
+    });
+
+    expect(loginSurface.clicks).toEqual(["input[type='button']"]);
+    expect(loginSurface.evaluate).not.toHaveBeenCalled();
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
   it("resolves 5sim order config from account-specific overrides", () => {
     const config = __test__.getFiveSimOrderConfig({
       options: {
