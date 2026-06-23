@@ -667,35 +667,72 @@ async function openCodeBuddyCnLoginUi(page) {
   return null;
 }
 
-async function selectPhoneDialCode(target, dialCode) {
-  if (!dialCode) return true;
-  const alreadySelected = await target.evaluate((value) => {
-    const clean = String(value || "").trim();
-    const currentSelector = document.querySelector(".kc-country-selector, [role='combobox'], [class*='country']");
-    const currentSelectorText = currentSelector?.textContent || currentSelector?.value || "";
-    return currentSelectorText.includes(clean);
-  }, dialCode).catch(() => false);
-  if (alreadySelected) return true;
+async function clickFirstVisibleLocator(scope, selectors, { visibleTimeout = 1_000, clickTimeout = 3_000 } = {}) {
+  if (!scope?.locator) return false;
+  for (const selector of selectors) {
+    const locator = scope.locator(selector)?.first?.();
+    if (!locator) continue;
+    const visible = await locator.isVisible?.({ timeout: visibleTimeout }).catch(() => false);
+    if (!visible) continue;
+    try {
+      await locator.click({ timeout: clickTimeout });
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
 
-  await target.evaluate(() => {
-    const openers = Array.from(document.querySelectorAll(".kc-country-selector, [role='combobox'], button, div, span"));
-    const opener = openers.find((element) => {
-      const text = String(element.textContent || element.getAttribute("aria-label") || "").trim();
-      const className = String(element.className || "");
-      return text.includes("+") || /country|area|phone-code|dial|kc-country/i.test(className);
-    });
-    opener?.click();
-  }).catch(() => null);
-  await wait(500);
+async function isPhoneDialCodeSelected(target, dialCode) {
+  if (!dialCode) return true;
+  const selectors = [
+    ".kc-country-selector",
+    "[role='combobox']:has-text('+')",
+    "button:has-text('+')",
+  ];
+
+  if (target?.locator) {
+    for (const selector of selectors) {
+      const locator = target.locator(selector)?.first?.();
+      if (!locator) continue;
+      const visible = await locator.isVisible?.({ timeout: 500 }).catch(() => false);
+      if (!visible) continue;
+      const text = await locator.textContent?.({ timeout: 500 }).catch(() => "");
+      if (String(text || "").includes(dialCode)) return true;
+    }
+  }
 
   return await target.evaluate((value) => {
     const clean = String(value || "").trim();
-    const options = Array.from(document.querySelectorAll(".kc-country-option, [role='option'], li, div, span"));
-    const option = options.find((element) => String(element.textContent || "").includes(clean));
-    if (!option) return false;
-    option.click();
-    return true;
+    const currentSelector = document.querySelector(".kc-country-selector, [role='combobox'], button[class*='country'], [class*='country']");
+    const currentSelectorText = currentSelector?.textContent || currentSelector?.value || "";
+    return currentSelectorText.includes(clean);
   }, dialCode).catch(() => false);
+}
+
+async function selectPhoneDialCode(target, dialCode) {
+  if (!dialCode) return true;
+  if (await isPhoneDialCodeSelected(target, dialCode)) return true;
+
+  const countrySelectorOpened = await clickFirstVisibleLocator(target, [
+    ".kc-country-selector",
+    "[role='combobox']:has-text('+')",
+    "button:has-text('+')",
+  ]);
+  if (!countrySelectorOpened) return false;
+
+  await wait(500);
+
+  const countrySelected = await clickFirstVisibleLocator(target, [
+    `.kc-country-option:has-text('${dialCode}')`,
+    `[role='option']:has-text('${dialCode}')`,
+    `text=${dialCode}`,
+  ]);
+  if (!countrySelected) return false;
+
+  await wait(500);
+  return await isPhoneDialCodeSelected(target, dialCode);
 }
 
 async function getPhoneValidationMessage(target) {
@@ -1708,6 +1745,7 @@ export const __test__ = {
   buildLookupResponse,
   normalizePhoneNumber,
   splitCodeBuddyCnPhoneForLogin,
+  selectPhoneDialCode,
   extractOtpCodeFromText,
   getFiveSimOrderConfig,
   getEffectiveAutomationCount,

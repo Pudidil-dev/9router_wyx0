@@ -49,6 +49,48 @@ describe("CodeBuddy CN automation manager helpers", () => {
     expect(__test__.extractOtpCodeFromText("no code here")).toBe("");
   });
 
+  function createDialCodeScope({ selected = "+86", updateOnOptionClick = true } = {}) {
+    const clicks = [];
+    let opened = false;
+    let current = selected;
+    return {
+      clicks,
+      locator: vi.fn((selector) => ({
+        first: () => ({
+          isVisible: async () => {
+            if (selector === ".kc-country-selector") return true;
+            if (selector.includes("+852")) return opened;
+            return false;
+          },
+          textContent: async () => current,
+          click: async () => {
+            clicks.push(selector);
+            if (selector === ".kc-country-selector") opened = true;
+            if (selector.includes("+852") && updateOnOptionClick) current = "+852";
+          },
+        }),
+      })),
+      evaluate: async (_callback, value) => current.includes(value),
+    };
+  }
+
+  it("selects and verifies the 852 country code before phone entry", async () => {
+    const scope = createDialCodeScope();
+
+    await expect(__test__.selectPhoneDialCode(scope, "+852")).resolves.toBe(true);
+
+    expect(scope.clicks).toEqual([
+      ".kc-country-selector",
+      ".kc-country-option:has-text('+852')",
+    ]);
+  });
+
+  it("does not report the 852 country code selected until the visible selector changes", async () => {
+    const scope = createDialCodeScope({ updateOnOptionClick: false });
+
+    await expect(__test__.selectPhoneDialCode(scope, "+852")).resolves.toBe(false);
+  });
+
   it("resolves 5sim order config from account-specific overrides", () => {
     const config = __test__.getFiveSimOrderConfig({
       options: {
