@@ -33,7 +33,80 @@ const FIVE_SIM_DEFAULT_COUNTRY = "hongkong";
 const FIVE_SIM_DEFAULT_OPERATOR = "virtual54";
 const FIVE_SIM_DEFAULT_PRODUCT = "codebuddy";
 const FIVE_SIM_POLL_INTERVAL_MS = 5_000;
-const CODEBUDDY_CN_SMS_ENDPOINT = "https://www.codebuddy.cn/auth/realms/copilot/sms/authentication-code";
+const CODEBUDDY_CN_HOME_URL = "https://www.codebuddy.cn/home/";
+const CODEBUDDY_CN_LOGIN_OPEN_TIMEOUT_MS = 45_000;
+const CODEBUDDY_CN_LOGIN_CLICK_TIMEOUT_MS = 8_000;
+const CODEBUDDY_CN_LOGIN_RETRY_INTERVAL_MS = 750;
+const CODEBUDDY_CN_OTP_RETRY_INTERVAL_MS = 70_000;
+const CODEBUDDY_CN_MAX_OTP_REQUEST_ATTEMPTS = 3;
+const CODEBUDDY_CN_LOGIN_BUTTON_SELECTORS = [
+  "button.btn-login",
+  ".nav-actions .btn-login",
+  ".mobile-actions .btn-login",
+  "button:has-text('登录')",
+  "button:has-text('Masuk')",
+  "button:has-text('Login')",
+  "a:has-text('登录')",
+  "a:has-text('Login')",
+  "[role='button']:has-text('登录')",
+  "[role='button']:has-text('Login')",
+];
+const CODEBUDDY_CN_LOGIN_FRAME_READY_SELECTORS = [
+  "text=其他登录方式",
+  "text=微信登录",
+  "text=手机号",
+  "text=手机号登录",
+  "text=短信登录",
+  "text=验证码登录",
+  "text=服务条款",
+  "text=Phone",
+  "text=SMS",
+  "input[type='checkbox']",
+];
+const CODEBUDDY_CN_PHONE_LOGIN_MODE_SELECTORS = [
+  "text=手机号",
+  "text=手机号登录",
+  "text=手机登录",
+  "text=短信登录",
+  "text=验证码登录",
+  "text=短信验证码登录",
+  "text=Phone",
+  "text=Phone number",
+  "text=Mobile",
+  "text=SMS",
+  "button:has-text('手机')",
+  "button:has-text('短信')",
+  "button:has-text('验证码')",
+  "button:has-text('Phone')",
+  "button:has-text('SMS')",
+  "[role='tab']:has-text('手机')",
+  "[role='tab']:has-text('短信')",
+  "[role='tab']:has-text('Phone')",
+  "[role='button']:has-text('手机')",
+  "[role='button']:has-text('短信')",
+  "[role='button']:has-text('Phone')",
+  "div.cursor-pointer:has-text('手机')",
+  "div.cursor-pointer:has-text('短信')",
+  "div.flex.items-center.gap-1.cursor-pointer",
+];
+const CODEBUDDY_CN_PHONE_INPUT_SELECTORS = [
+  "#phoneNumber",
+  "input[type='tel']",
+  "input[inputmode='tel']",
+  "input[autocomplete='tel']",
+  "input[name*='phone' i]",
+  "input[name*='mobile' i]",
+  "input[id*='phone' i]",
+  "input[id*='mobile' i]",
+  "input[placeholder*='手机']",
+  "input[placeholder*='手机号']",
+  "input[placeholder*='手机号码']",
+  "input[placeholder*='电话号码']",
+  "input[placeholder*='电话']",
+  "input[placeholder*='phone' i]",
+  "input[placeholder*='mobile' i]",
+  "input.pf-c-form-control",
+];
 const CODEBUDDY_CN_LIFECYCLE_METADATA_KEYS = [
   "activationStatus",
   "activationMethod",
@@ -340,9 +413,10 @@ async function setFiveSimOrderStatus(apiKey, status, orderId) {
   return await fiveSimRequest(apiKey, `/${status}/${encodeURIComponent(orderId)}`);
 }
 
-async function waitForFiveSimOtp(job, orderId, onStep) {
+async function waitForFiveSimOtp(job, orderId, onStep, { retryOtpRequest = null } = {}) {
   const apiKey = String(job?.options?.fiveSimApiKey || "").trim();
   const deadline = Date.now() + (job.options.smsTimeoutMs || DEFAULT_MANUAL_TIMEOUT_MS);
+  let nextRetryAt = Date.now() + CODEBUDDY_CN_OTP_RETRY_INTERVAL_MS;
 
   while (Date.now() < deadline) {
     if (job.cancelRequested) throw new Error("Job cancelled");
@@ -361,6 +435,13 @@ async function waitForFiveSimOtp(job, orderId, onStep) {
     if (code) {
       await setFiveSimOrderStatus(apiKey, "finish", orderId).catch(() => null);
       return { code, order };
+    }
+
+    if (retryOtpRequest && Date.now() >= nextRetryAt) {
+      nextRetryAt = Date.now() + CODEBUDDY_CN_OTP_RETRY_INTERVAL_MS;
+      await retryOtpRequest({ order }).catch((error) => {
+        onStep?.("otp_retry_failed", error.message || "Could not retry CodeBuddy CN OTP request", "warn");
+      });
     }
 
     await wait(FIVE_SIM_POLL_INTERVAL_MS);
@@ -458,35 +539,59 @@ async function clickButtonByText(page, patterns = []) {
   }, lowered).catch(() => false);
 }
 
-async function clickPrimaryCodeBuddyCnLoginButton(page) {
-  // The login button is in .mobile-actions and may be outside viewport
-  // Use force click via JS to bypass viewport checks
-  try {
-    const clicked = await page.evaluate(() => {
-      const mobileBtn = document.querySelector('.mobile-actions .btn-login');
-      if (mobileBtn) {
-        mobileBtn.click();
-        return true;
-      }
-      // Fallback: try any visible login button
-      const buttons = Array.from(document.querySelectorAll('button.btn-login'));
-      for (const btn of buttons) {
-        if (btn.offsetParent !== null) {
-          btn.click();
-          return true;
-        }
-      }
-      return false;
+async function clickPrimaryCodeBuddyCnLoginButton(page, {
+  timeoutMs = CODEBUDDY_CN_LOGIN_CLICK_TIMEOUT_MS,
+  retryIntervalMs = CODEBUDDY_CN_LOGIN_RETRY_INTERVAL_MS,
+  postClickDelayMs = 1_500,
+} = {}) {
+  const startedAt = Date.now();
+  do {
+    const clickedLocator = await clickFirstVisibleLocator(page, CODEBUDDY_CN_LOGIN_BUTTON_SELECTORS, {
+      visibleTimeout: 750,
+      clickTimeout: 3_000,
     });
-    if (clicked) {
-      await wait(2_000);
+    if (clickedLocator) {
+      await wait(postClickDelayMs);
       return true;
     }
-  } catch {
-    // Fall through to generic text heuristics below.
-  }
 
-  return await clickButtonByText(page, ["登录", "login", "sign in"]).catch(() => false);
+    try {
+      const clicked = await page.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll([
+          ".mobile-actions .btn-login",
+          ".nav-actions .btn-login",
+          "button.btn-login",
+          "a.btn-login",
+          "button",
+          "a",
+          "[role='button']",
+        ].join(",")));
+        for (const candidate of candidates) {
+          const text = String(candidate.textContent || candidate.value || "").trim().toLowerCase();
+          const className = String(candidate.className || "").toLowerCase();
+          const looksLikeLogin = className.includes("btn-login") || /登录|login|sign in|masuk/i.test(text);
+          if (!looksLikeLogin) continue;
+          const style = window.getComputedStyle?.(candidate);
+          const visible = candidate.offsetParent !== null && style?.visibility !== "hidden" && style?.display !== "none";
+          if (!visible && !className.includes("btn-login")) continue;
+          candidate.click();
+          return true;
+        }
+        return false;
+      });
+      if (clicked) {
+        await wait(postClickDelayMs);
+        return true;
+      }
+    } catch {
+      // Keep polling; CodeBuddy CN often renders the header login button late.
+    }
+
+    if (Date.now() - startedAt >= timeoutMs) break;
+    await wait(retryIntervalMs);
+  } while (Date.now() - startedAt < timeoutMs);
+
+  return false;
 }
 
 async function selectCodeBuddyCnRegion(page) {
@@ -517,9 +622,30 @@ function getCodeBuddyCnLoginFrame(page) {
   // The login iframe can have different URL patterns
   return page.frames().find((frame) => {
     const url = frame.url();
-    return url.includes("https://www.codebuddy.cn/login") || 
+    return url.includes("https://www.codebuddy.cn/login") ||
            url.includes("/login?platform=website");
   }) || null;
+}
+
+async function findCodeBuddyCnLoginFrame(page) {
+  const urlFrame = getCodeBuddyCnLoginFrame(page);
+  if (urlFrame) return urlFrame;
+  if (!page?.locator) return null;
+
+  for (const selector of [
+    "iframe.dialogModel-iframe",
+    "iframe[src*='login']",
+    "iframe[src*='auth/realms/copilot']",
+  ]) {
+    const locator = page.locator(selector)?.first?.();
+    const handlePromise = locator?.elementHandle?.({ timeout: 500 });
+    const handle = handlePromise ? await handlePromise.catch(() => null) : null;
+    const framePromise = handle?.contentFrame?.();
+    const frame = framePromise ? await framePromise.catch(() => null) : null;
+    if (frame) return frame;
+  }
+
+  return null;
 }
 
 function getCodeBuddyCnPhoneFrame(page) {
@@ -531,10 +657,30 @@ function getCodeBuddyCnPhoneFrame(page) {
   }) || null;
 }
 
+async function hasAnyVisibleLocator(scope, selectors, { visibleTimeout = 500 } = {}) {
+  if (!scope?.locator) return false;
+  for (const selector of selectors) {
+    const locator = scope.locator(selector)?.first?.();
+    if (!locator) continue;
+    const visible = await locator.isVisible?.({ timeout: visibleTimeout }).catch(() => false);
+    if (visible) return true;
+  }
+  return false;
+}
+
+async function waitForAnyVisibleLocator(scope, selectors, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (await hasAnyVisibleLocator(scope, selectors)) return true;
+    await wait(250);
+  }
+  return false;
+}
+
 async function waitForCodeBuddyCnLoginSurface(page, timeoutMs = 15_000) {
   const startedAt = Date.now();
   while ((Date.now() - startedAt) < timeoutMs) {
-    const frame = getCodeBuddyCnLoginFrame(page);
+    const frame = await findCodeBuddyCnLoginFrame(page);
     if (frame) return frame;
     await wait(250);
   }
@@ -542,9 +688,11 @@ async function waitForCodeBuddyCnLoginSurface(page, timeoutMs = 15_000) {
 }
 
 async function hasCodeBuddyCnAuthInputs(target) {
+  if (await hasAnyVisibleLocator(target, CODEBUDDY_CN_PHONE_INPUT_SELECTORS)) return true;
   return await target.evaluate(() => {
     const inputs = Array.from(document.querySelectorAll("input"));
     return inputs.some((input) => {
+      if (input.type === "hidden") return false;
       const hint = [
         input.type,
         input.name,
@@ -552,116 +700,136 @@ async function hasCodeBuddyCnAuthInputs(target) {
         input.placeholder,
         input.autocomplete,
         input.getAttribute("aria-label"),
+        input.className,
       ].join(" ").toLowerCase();
       return /(phone|mobile|tel|手机|号码|otp|code|验证码|verif)/i.test(hint);
     });
   }).catch(() => false);
 }
 
+async function findCodeBuddyCnPhoneAuthSurface(page, loginFrame = null) {
+  const knownPhoneFrame = getCodeBuddyCnPhoneFrame(page);
+  if (knownPhoneFrame && await hasCodeBuddyCnAuthInputs(knownPhoneFrame)) return knownPhoneFrame;
+
+  const iframeSelectors = [
+    "iframe[src*='/auth/realms/copilot/']",
+    "iframe[src*='auth']",
+    "iframe[src*='phone']",
+  ];
+  if (loginFrame?.locator) {
+    for (const selector of iframeSelectors) {
+      const locator = loginFrame.locator(selector)?.first?.();
+      const handlePromise = locator?.elementHandle?.({ timeout: 500 });
+      const handle = handlePromise ? await handlePromise.catch(() => null) : null;
+      const framePromise = handle?.contentFrame?.();
+      const frame = framePromise ? await framePromise.catch(() => null) : null;
+      if (frame && await hasCodeBuddyCnAuthInputs(frame)) return frame;
+    }
+
+    if (await hasCodeBuddyCnAuthInputs(loginFrame)) return loginFrame;
+  }
+
+  for (const frame of page.frames?.() || []) {
+    if (loginFrame && frame === loginFrame) continue;
+    if (await hasCodeBuddyCnAuthInputs(frame)) return frame;
+  }
+
+  return null;
+}
+
+async function acceptCodeBuddyCnLoginTerms(loginFrame) {
+  const locatorClicked = await clickFirstVisibleLocator(loginFrame, [
+    "input[type='checkbox']",
+    "label.t-checkbox",
+    ".t-checkbox__former",
+  ], { visibleTimeout: 500, clickTimeout: 2_000 });
+
+  const domClicked = await loginFrame.evaluate(() => {
+    const checkbox = document.querySelector('.t-checkbox__former') ||
+      document.querySelector('input[type="checkbox"]') ||
+      document.querySelector('label.t-checkbox');
+    if (!checkbox) return false;
+    checkbox.click();
+    if (checkbox instanceof HTMLInputElement && !checkbox.checked) {
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    return true;
+  }).catch(() => false);
+
+  if (locatorClicked || domClicked) await wait(500);
+  return locatorClicked || domClicked;
+}
+
 async function clickPhoneLoginInModal(page) {
-  // Inside the login iframe, click the checkbox + "手机号" option
-  const loginFrame = getCodeBuddyCnLoginFrame(page);
+  // Inside the login iframe, click the checkbox + phone/SMS login option.
+  const loginFrame = await findCodeBuddyCnLoginFrame(page);
   if (!loginFrame) return false;
 
-  try {
-    // Step 1: Check the agreement checkbox
-    await loginFrame.evaluate(() => {
-      const checkbox = document.querySelector('.t-checkbox__former');
-      if (checkbox) {
-        checkbox.click();
-        if (!checkbox.checked) {
-          checkbox.checked = true;
-          checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }
-    }).catch(() => null);
-    await wait(500);
+  await waitForAnyVisibleLocator(loginFrame, CODEBUDDY_CN_LOGIN_FRAME_READY_SELECTORS, 2_000);
+  await acceptCodeBuddyCnLoginTerms(loginFrame);
 
-    // Step 2: Click "手机号" (phone number login option)
-    const clicked = await loginFrame.evaluate(() => {
-      // Try multiple strategies to find the phone option
-      // Strategy 1: exact text match on leaf elements
-      const allEls = Array.from(document.querySelectorAll('div, span, a, p, li'));
-      for (const el of allEls) {
-        if (el.children.length === 0 && (el.textContent || '').trim() === '手机号') {
-          // Click the parent container which is usually the clickable element
-          const target = el.closest('[class*="item"]') || el.closest('[class*="other"]') || el.parentElement || el;
-          target.click();
-          return true;
-        }
-      }
-      // Strategy 2: find by class hints
-      const phoneItems = document.querySelectorAll('[class*="phone"], [class*="mobile"]');
-      for (const item of phoneItems) {
-        const text = (item.textContent || '').trim();
-        if (text === '手机号' || text.includes('手机号')) {
-          item.click();
-          return true;
-        }
-      }
-      return false;
-    }).catch(() => false);
+  const clickedLocator = await clickFirstVisibleLocator(loginFrame, CODEBUDDY_CN_PHONE_LOGIN_MODE_SELECTORS, {
+    visibleTimeout: 750,
+    clickTimeout: 3_000,
+  });
+  if (clickedLocator) {
+    await wait(1_000);
+    await acceptCodeBuddyCnLoginTerms(loginFrame);
+    return true;
+  }
 
-    if (clicked) {
-      await wait(2_000);
+  const clickedDom = await loginFrame.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [role="tab"], div, span, p, li'));
+    for (const element of candidates) {
+      const text = String(element.textContent || '').trim();
+      if (!/(手机号|手机登录|短信|验证码登录|phone|mobile|sms)/i.test(text)) continue;
+      const target = element.closest('button, a, [role="button"], [role="tab"], [class*="cursor"], [class*="item"], [class*="other"]') || element;
+      target.click();
       return true;
     }
-  } catch {
-    // Ignore errors
+    return false;
+  }).catch(() => false);
+
+  if (clickedDom) {
+    await wait(1_000);
+    await acceptCodeBuddyCnLoginTerms(loginFrame);
+    return true;
   }
+
   return false;
 }
 
-async function openCodeBuddyCnLoginUi(page) {
-  // Step 1: Click the main login button on the page
-  const loginClicked = await clickPrimaryCodeBuddyCnLoginButton(page);
-  if (loginClicked) {
-    await wait(2_000);
-  }
+async function openCodeBuddyCnLoginUi(page, { timeoutMs = CODEBUDDY_CN_LOGIN_OPEN_TIMEOUT_MS } = {}) {
+  const startedAt = Date.now();
+  let navigatedHome = false;
 
-  // Step 2: Wait for the login modal iframe to appear
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const loginFrame = await waitForCodeBuddyCnLoginSurface(page, 3_000);
-    if (!loginFrame) {
-      // If no login frame after first attempt, try navigating
-      if (attempt === 0) {
-        await page.goto("https://www.codebuddy.cn/home/", {
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const loginFrame = await findCodeBuddyCnLoginFrame(page);
+    const phoneSurface = await findCodeBuddyCnPhoneAuthSurface(page, loginFrame);
+    if (phoneSurface) return phoneSurface;
+
+    if (loginFrame) {
+      await waitForAnyVisibleLocator(loginFrame, CODEBUDDY_CN_LOGIN_FRAME_READY_SELECTORS, 2_000);
+      await acceptCodeBuddyCnLoginTerms(loginFrame);
+      await clickPhoneLoginInModal(page);
+      const phoneSurfaceAfterClick = await findCodeBuddyCnPhoneAuthSurface(page, loginFrame);
+      if (phoneSurfaceAfterClick) return phoneSurfaceAfterClick;
+    } else {
+      const clickedLogin = await clickPrimaryCodeBuddyCnLoginButton(page, { timeoutMs: 3_000 });
+      if (clickedLogin) {
+        await wait(1_000);
+      } else if (!navigatedHome) {
+        navigatedHome = true;
+        await page.goto(CODEBUDDY_CN_HOME_URL, {
           waitUntil: "domcontentloaded",
           timeout: 30_000,
         }).catch(() => null);
-        await wait(2_000);
-        await clickPrimaryCodeBuddyCnLoginButton(page);
-        await wait(2_000);
+        await wait(1_000);
       }
-      continue;
     }
 
-    // Step 3: Check if the phone iframe (nested) already has inputs
-    const phoneFrame = getCodeBuddyCnPhoneFrame(page);
-    if (phoneFrame) {
-      const phoneReady = await hasCodeBuddyCnAuthInputs(phoneFrame);
-      if (phoneReady) return phoneFrame;
-      // Wait for phone frame to fully load
-      await phoneFrame.waitForLoadState?.("domcontentloaded", { timeout: 5_000 }).catch(() => null);
-      await wait(1_000);
-      const phoneReady2 = await hasCodeBuddyCnAuthInputs(phoneFrame);
-      if (phoneReady2) return phoneFrame;
-    }
-
-    // Step 4: Click checkbox + "手机号" inside the login modal
-    const phoneClicked = await clickPhoneLoginInModal(page);
-    if (phoneClicked) {
-      await wait(2_000);
-    }
-
-    // Step 5: Check again for the nested phone iframe
-    const phoneFrame2 = getCodeBuddyCnPhoneFrame(page);
-    if (phoneFrame2) {
-      await phoneFrame2.waitForLoadState?.("domcontentloaded", { timeout: 5_000 }).catch(() => null);
-      await wait(1_500);
-      const phoneReady = await hasCodeBuddyCnAuthInputs(phoneFrame2);
-      if (phoneReady) return phoneFrame2;
-    }
+    await wait(CODEBUDDY_CN_LOGIN_RETRY_INTERVAL_MS);
   }
 
   return null;
@@ -674,6 +842,10 @@ async function clickFirstVisibleLocator(scope, selectors, { visibleTimeout = 1_0
     if (!locator) continue;
     const visible = await locator.isVisible?.({ timeout: visibleTimeout }).catch(() => false);
     if (!visible) continue;
+    const enabled = locator.isEnabled
+      ? await locator.isEnabled({ timeout: visibleTimeout }).catch(() => true)
+      : true;
+    if (!enabled) continue;
     try {
       await locator.click({ timeout: clickTimeout });
       return true;
@@ -848,51 +1020,59 @@ async function fillOtpInput(target, otpCode) {
   }, otpCode).catch(() => false);
 }
 
-async function tryRequestOtpViaPage(page, phoneNumber) {
-  const url = `${CODEBUDDY_CN_SMS_ENDPOINT}?phoneNumber=${encodeURIComponent(phoneNumber)}`;
-  return await codeBuddyCnRequestViaPage(page, "GET", url).catch(() => ({ status: 0, text: "" }));
-}
+async function clickCodeBuddyCnOtpRequestButton(loginSurface, page, { timeoutMs = 10_000 } = {}) {
+  const startedAt = Date.now();
+  do {
+    const clickedFrameLocator = await clickFirstVisibleLocator(loginSurface, [
+      "input.code-btn",
+      "button.code-btn",
+      ".code-btn",
+      "input[type='button']",
+      "button:has-text('获取验证码')",
+      "button:has-text('发送验证码')",
+      "button:has-text('Get code')",
+      "button:has-text('Send code')",
+      "[role='button']:has-text('获取验证码')",
+      "[role='button']:has-text('发送验证码')",
+      "[role='button']:has-text('Send code')",
+    ], { visibleTimeout: 500, clickTimeout: 2_000 });
+    if (clickedFrameLocator) return { clicked: true, source: "auth_frame_locator" };
 
-async function clickCodeBuddyCnOtpRequestButton(loginSurface, page) {
-  const clickedFrameLocator = await clickFirstVisibleLocator(loginSurface, [
-    "input.code-btn",
-    "button.code-btn",
-    ".code-btn",
-    "input[type='button']",
-    "button:has-text('获取验证码')",
-    "button:has-text('发送验证码')",
-    "button:has-text('Get code')",
-    "button:has-text('Send code')",
-    "[role='button']:has-text('获取验证码')",
-    "[role='button']:has-text('发送验证码')",
-    "[role='button']:has-text('Send code')",
-  ]);
-  if (clickedFrameLocator) return { clicked: true, source: "auth_frame_locator" };
-
-  const clickedFrameDom = await loginSurface.evaluate(() => {
-    const sendBtn = document.querySelector('.code-btn') ||
-                    document.querySelector('input.code-btn') ||
-                    document.querySelector('button.code-btn') ||
-                    document.querySelector('input[type="button"]');
-    if (sendBtn) {
-      sendBtn.click();
-      return true;
-    }
-
-    const buttons = Array.from(document.querySelectorAll('button, input[type="button"], a, [role="button"]'));
-    for (const btn of buttons) {
-      const text = (btn.textContent || btn.value || '').trim().toLowerCase();
-      if (/(send|get|获取|发送|验证码)/i.test(text)) {
-        btn.click();
+    const clickedFrameDom = await loginSurface.evaluate(() => {
+      const isDisabled = (element) => Boolean(
+        element?.disabled ||
+        element?.getAttribute?.("disabled") !== null ||
+        String(element?.getAttribute?.("aria-disabled") || "").toLowerCase() === "true" ||
+        /disabled/i.test(String(element?.className || ""))
+      );
+      const sendBtn = document.querySelector('.code-btn') ||
+                      document.querySelector('input.code-btn') ||
+                      document.querySelector('button.code-btn') ||
+                      document.querySelector('input[type="button"]');
+      if (sendBtn && !isDisabled(sendBtn)) {
+        sendBtn.click();
         return true;
       }
-    }
-    return false;
-  }).catch(() => false);
-  if (clickedFrameDom) return { clicked: true, source: "auth_frame_dom" };
 
-  const clickedMain = await clickButtonByText(page, ["send code", "send otp", "get code", "获取验证码", "发送验证码", "sms"]);
-  if (clickedMain) return { clicked: true, source: "main_page" };
+      const buttons = Array.from(document.querySelectorAll('button, input[type="button"], a, [role="button"]'));
+      for (const btn of buttons) {
+        if (isDisabled(btn)) continue;
+        const text = (btn.textContent || btn.value || '').trim().toLowerCase();
+        if (/(send|get|获取|发送|验证码)/i.test(text)) {
+          btn.click();
+          return true;
+        }
+      }
+      return false;
+    }).catch(() => false);
+    if (clickedFrameDom) return { clicked: true, source: "auth_frame_dom" };
+
+    const clickedMain = await clickButtonByText(page, ["send code", "send otp", "get code", "获取验证码", "发送验证码", "sms"]);
+    if (clickedMain) return { clicked: true, source: "main_page" };
+
+    if (Date.now() - startedAt >= timeoutMs) break;
+    await wait(500);
+  } while (Date.now() - startedAt < timeoutMs);
 
   return { clicked: false, source: null };
 }
@@ -925,14 +1105,31 @@ async function waitForBrowserCredentialsOrApiKey(job, page, onStep) {
   throw new Error("Timed out waiting for CodeBuddy CN session after OTP submission");
 }
 
-async function runFiveSimRegistrationFlow(job, account, page, onStep) {
-  const profile = await getFiveSimProfile(job.options.fiveSimApiKey).catch(() => null);
+async function runFiveSimRegistrationFlow(job, account, page, onStep, {
+  getProfile = getFiveSimProfile,
+  openLoginUi = openCodeBuddyCnLoginUi,
+  orderNumber = orderFiveSimNumber,
+  fillPhone = fillPhoneInput,
+  clickOtpButton = clickCodeBuddyCnOtpRequestButton,
+  waitForOtp = waitForFiveSimOtp,
+  fillOtp = fillOtpInput,
+  clickSubmit = clickButtonByText,
+  waitForCredentials = waitForBrowserCredentialsOrApiKey,
+  setOrderStatus = setFiveSimOrderStatus,
+} = {}) {
+  const profile = await getProfile(job.options.fiveSimApiKey).catch(() => null);
   if (profile?.balance !== undefined) {
     onStep("checking_5sim_balance", `5sim balance: ${profile.balance}`);
   }
 
+  onStep("opening_sms_login", "Opening CodeBuddy CN SMS login form before buying a 5sim number");
+  const loginSurface = await openLoginUi(page);
+  if (!loginSurface) {
+    throw new Error("Could not open the CodeBuddy CN SMS login form automatically before buying a 5sim number");
+  }
+
   onStep("ordering_5sim_number", "Getting number from 5sim");
-  const order = await orderFiveSimNumber(job, account);
+  const order = await orderNumber(job, account);
   account.phone = order.phone;
   account.contactHint = order.phone;
   account.providerSpecificData = {
@@ -945,36 +1142,43 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep) {
   };
   onStep("got_5sim_number", `Got number: ${order.phone} (#${order.id}${order.price !== null ? `, $${order.price}` : ""})`);
 
-  onStep("opening_sms_login", "Opening CodeBuddy CN SMS login form");
-  const loginSurface = await openCodeBuddyCnLoginUi(page);
-  if (!loginSurface) {
-    throw new Error("Could not open the CodeBuddy CN SMS login form automatically");
-  }
-
-  const phoneFilled = await fillPhoneInput(loginSurface, order.phone);
+  const phoneFilled = await fillPhone(loginSurface, order.phone);
   if (!phoneFilled) {
     throw new Error("Could not locate the CodeBuddy CN phone number input");
   }
 
+  let otpRequestAttempts = 1;
   onStep("requesting_otp", `Clicking CodeBuddy CN OTP button for ${order.phone}`);
-  const requestResult = await clickCodeBuddyCnOtpRequestButton(loginSurface, page);
+  const requestResult = await clickOtpButton(loginSurface, page);
   if (!requestResult.clicked) {
     throw new Error("Could not trigger the CodeBuddy CN OTP request button");
   }
   onStep("otp_requested", `Clicked CodeBuddy CN OTP button via ${requestResult.source}`);
 
-  const otp = await waitForFiveSimOtp(job, order.id, onStep);
+  const retryOtpRequest = async () => {
+    if (otpRequestAttempts >= CODEBUDDY_CN_MAX_OTP_REQUEST_ATTEMPTS) return;
+    otpRequestAttempts += 1;
+    onStep("requesting_otp_retry", `Retrying CodeBuddy CN OTP button (${otpRequestAttempts}/${CODEBUDDY_CN_MAX_OTP_REQUEST_ATTEMPTS})`);
+    const retryResult = await clickOtpButton(loginSurface, page, { timeoutMs: 3_000 });
+    if (retryResult.clicked) {
+      onStep("otp_requested", `Clicked CodeBuddy CN OTP button via ${retryResult.source}`);
+    } else {
+      onStep("otp_retry_waiting", "CodeBuddy CN OTP button is still unavailable; continuing to poll 5sim");
+    }
+  };
+
+  const otp = await waitForOtp(job, order.id, onStep, { retryOtpRequest });
 
   onStep("submitting_otp", "Submitting the OTP received from 5sim");
-  const otpFilled = await fillOtpInput(loginSurface, otp.code);
+  const otpFilled = await fillOtp(loginSurface, otp.code);
   if (!otpFilled) {
     throw new Error("Found OTP from 5sim but could not locate a CodeBuddy CN OTP input");
   }
 
-  await clickButtonByText(loginSurface, ["login", "sign in", "verify", "submit", "确认", "登录", "继续", "continue"]).catch(() => false);
+  await clickSubmit(loginSurface, ["login", "sign in", "verify", "submit", "确认", "登录", "继续", "continue"]).catch(() => false);
 
-  const credentials = await waitForBrowserCredentialsOrApiKey(job, page, onStep);
-  await setFiveSimOrderStatus(job.options.fiveSimApiKey, "finish", order.id).catch(() => null);
+  const credentials = await waitForCredentials(job, page, onStep);
+  await setOrderStatus(job.options.fiveSimApiKey, "finish", order.id).catch(() => null);
   return credentials;
 }
 
@@ -1643,7 +1847,9 @@ export class CodeBuddyCnAutomationManager {
         waitUntil: "domcontentloaded",
         timeout: 30_000,
       });
-      await openCodeBuddyCnLoginUi(page).catch(() => false);
+      if (!job.options.fiveSimApiKey) {
+        await openCodeBuddyCnLoginUi(page).catch(() => false);
+      }
 
       let extracted = null;
       if (job.options.fiveSimApiKey) {
@@ -1768,6 +1974,12 @@ export const __test__ = {
   getEffectiveAutomationCount,
   hasCodeBuddyCnAuthInputs,
   getCodeBuddyCnLoginFrame,
+  findCodeBuddyCnLoginFrame,
+  findCodeBuddyCnPhoneAuthSurface,
+  clickPrimaryCodeBuddyCnLoginButton,
+  clickPhoneLoginInModal,
+  openCodeBuddyCnLoginUi,
   selectCodeBuddyCnRegion,
   mergeCodeBuddyCnUsageMetadata,
+  runFiveSimRegistrationFlow,
 };

@@ -18,7 +18,7 @@
 - Reuse shared constants, stores, hooks, and UI components instead of duplicating cross-dashboard behavior.
 - Shared bulk automation components may expose provider-specific copy, worker limits, and device-based worker recommendations; Camoufox is the single browser runtime and bulk workers run headless by default.
 - Keep CodeBuddy CN account activation and gateway-probation handling in provider-local OAuth services; routes and dashboard components consume sanitized job state only.
-- CodeBuddy CN 5sim flows should preflight token, balance, stock, and route capacity before bulk registration when possible, including proxy-pool fallback for transient 5sim failures.
+- CodeBuddy CN 5sim flows should preflight token, balance, stock, route capacity, and SMS login readiness before bulk registration when possible, including proxy-pool fallback for transient 5sim failures; OTP requests should go through the visible CodeBuddy UI.
 - Document durable changes to source ownership or runtime flow in this file and, when architectural, in `docs/ARCHITECTURE.md`.
 
 ## Work Guidance

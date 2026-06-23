@@ -91,13 +91,20 @@ describe("CodeBuddy CN automation manager helpers", () => {
     await expect(__test__.selectPhoneDialCode(scope, "+852")).resolves.toBe(false);
   });
 
-  function createOtpButtonScope({ visibleSelector = "input[type='button']" } = {}) {
+  function createOtpButtonScope({
+    visibleSelector = "input[type='button']",
+    visibleSelectors = null,
+    disabledSelectors = [],
+  } = {}) {
     const clicks = [];
+    const visible = new Set(visibleSelectors || [visibleSelector]);
+    const disabled = new Set(disabledSelectors);
     return {
       clicks,
       locator: vi.fn((selector) => ({
         first: () => ({
-          isVisible: async () => selector === visibleSelector,
+          isVisible: async () => visible.has(selector),
+          isEnabled: async () => !disabled.has(selector),
           click: async () => clicks.push(selector),
         }),
       })),
@@ -117,6 +124,98 @@ describe("CodeBuddy CN automation manager helpers", () => {
     expect(loginSurface.clicks).toEqual(["input[type='button']"]);
     expect(loginSurface.evaluate).not.toHaveBeenCalled();
     expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it("skips disabled CodeBuddy CN OTP button locators", async () => {
+    const loginSurface = createOtpButtonScope({
+      visibleSelectors: ["input.code-btn", "input[type='button']"],
+      disabledSelectors: ["input.code-btn"],
+    });
+    const page = { evaluate: vi.fn(async () => false) };
+
+    await expect(__test__.clickCodeBuddyCnOtpRequestButton(loginSurface, page, { timeoutMs: 0 })).resolves.toEqual({
+      clicked: true,
+      source: "auth_frame_locator",
+    });
+
+    expect(loginSurface.clicks).toEqual(["input[type='button']"]);
+    expect(loginSurface.evaluate).not.toHaveBeenCalled();
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it("retries when the CodeBuddy CN login button renders late", async () => {
+    const clicks = [];
+    let loginButtonChecks = 0;
+    const page = {
+      locator: vi.fn((selector) => ({
+        first: () => ({
+          isVisible: async () => {
+            if (selector !== "button.btn-login") return false;
+            loginButtonChecks += 1;
+            return loginButtonChecks > 1;
+          },
+          isEnabled: async () => true,
+          click: async () => clicks.push(selector),
+        }),
+      })),
+      evaluate: vi.fn(async () => false),
+    };
+
+    await expect(__test__.clickPrimaryCodeBuddyCnLoginButton(page, {
+      timeoutMs: 5_000,
+      retryIntervalMs: 0,
+      postClickDelayMs: 0,
+    })).resolves.toBe(true);
+
+    expect(loginButtonChecks).toBeGreaterThan(1);
+    expect(clicks).toEqual(["button.btn-login"]);
+  });
+
+  it("recognizes phone auth inputs inside login-frame child iframes", async () => {
+    const authFrame = {
+      locator: vi.fn((selector) => ({
+        first: () => ({
+          isVisible: async () => selector === "#phoneNumber",
+        }),
+      })),
+      evaluate: vi.fn(async () => false),
+    };
+    const loginFrame = {
+      locator: vi.fn((selector) => ({
+        first: () => ({
+          elementHandle: async () => selector === "iframe[src*='auth']"
+            ? { contentFrame: async () => authFrame }
+            : null,
+          isVisible: async () => false,
+        }),
+      })),
+      evaluate: vi.fn(async () => false),
+    };
+    const page = { frames: () => [] };
+
+    await expect(__test__.findCodeBuddyCnPhoneAuthSurface(page, loginFrame)).resolves.toBe(authFrame);
+  });
+
+  it("opens alternate SMS login mode labels in the CodeBuddy CN modal", async () => {
+    const clicks = [];
+    const loginFrame = {
+      url: () => "https://www.codebuddy.cn/login?platform=website",
+      locator: vi.fn((selector) => ({
+        first: () => ({
+          isVisible: async () => selector === "text=短信登录",
+          isEnabled: async () => true,
+          click: async () => clicks.push(selector),
+        }),
+      })),
+      evaluate: vi.fn(async () => false),
+    };
+    const page = {
+      frames: () => [loginFrame],
+    };
+
+    await expect(__test__.clickPhoneLoginInModal(page)).resolves.toBe(true);
+
+    expect(clicks).toContain("text=短信登录");
   });
 
   it("resolves 5sim order config from account-specific overrides", () => {
@@ -145,6 +244,155 @@ describe("CodeBuddy CN automation manager helpers", () => {
       operator: "virtual54",
       product: "codebuddy",
     });
+  });
+
+  function createFiveSimFlowDeps({ loginSurface = {}, orderNumber = null, clickOtpButton = null, waitForOtp = null } = {}) {
+    return {
+      getProfile: vi.fn(async () => ({ balance: 1 })),
+      openLoginUi: vi.fn(async () => loginSurface),
+      orderNumber: orderNumber || vi.fn(async () => ({
+        id: "order-1",
+        phone: "+85290510602",
+        country: "hongkong",
+        operator: "virtual54",
+        product: "codebuddy",
+        price: 0.13,
+      })),
+      fillPhone: vi.fn(async () => true),
+      clickOtpButton: clickOtpButton || vi.fn(async () => ({ clicked: true, source: "auth_frame_locator" })),
+      waitForOtp: waitForOtp || vi.fn(async () => ({ code: "483920", order: { id: "order-1" } })),
+      fillOtp: vi.fn(async () => true),
+      clickSubmit: vi.fn(async () => true),
+      waitForCredentials: vi.fn(async () => ({ apiKey: "cbcn-api-key" })),
+      setOrderStatus: vi.fn(async () => null),
+    };
+  }
+
+  it("opens the CodeBuddy CN SMS form before buying a 5sim number", async () => {
+    const callOrder = [];
+    const steps = [];
+    const loginSurface = { name: "login-surface" };
+    const deps = createFiveSimFlowDeps({ loginSurface });
+    deps.getProfile.mockImplementation(async () => {
+      callOrder.push("profile");
+      return { balance: 1 };
+    });
+    deps.openLoginUi.mockImplementation(async () => {
+      callOrder.push("open-login");
+      return loginSurface;
+    });
+    deps.orderNumber.mockImplementation(async () => {
+      callOrder.push("order-number");
+      return {
+        id: "order-1",
+        phone: "+85290510602",
+        country: "hongkong",
+        operator: "virtual54",
+        product: "codebuddy",
+        price: 0.13,
+      };
+    });
+    deps.fillPhone.mockImplementation(async (surface, phone) => {
+      callOrder.push("fill-phone");
+      expect(surface).toBe(loginSurface);
+      expect(phone).toBe("+85290510602");
+      return true;
+    });
+    deps.clickOtpButton.mockImplementation(async () => {
+      callOrder.push("click-otp");
+      return { clicked: true, source: "auth_frame_locator" };
+    });
+    deps.waitForOtp.mockImplementation(async (_job, orderId, _onStep, { retryOtpRequest }) => {
+      callOrder.push("wait-otp");
+      expect(orderId).toBe("order-1");
+      expect(retryOtpRequest).toBeTypeOf("function");
+      return { code: "483920", order: { id: "order-1" } };
+    });
+    deps.fillOtp.mockImplementation(async () => {
+      callOrder.push("fill-otp");
+      return true;
+    });
+    deps.clickSubmit.mockImplementation(async () => {
+      callOrder.push("submit");
+      return true;
+    });
+    deps.waitForCredentials.mockImplementation(async () => {
+      callOrder.push("credentials");
+      return { apiKey: "cbcn-api-key" };
+    });
+    deps.setOrderStatus.mockImplementation(async () => {
+      callOrder.push("finish-order");
+      return null;
+    });
+
+    const account = { providerSpecificData: {} };
+    const result = await __test__.runFiveSimRegistrationFlow(
+      { options: { fiveSimApiKey: "five-token" }, cancelRequested: false },
+      account,
+      {},
+      (step) => steps.push(step),
+      deps,
+    );
+
+    expect(result).toEqual({ apiKey: "cbcn-api-key" });
+    expect(callOrder).toEqual([
+      "profile",
+      "open-login",
+      "order-number",
+      "fill-phone",
+      "click-otp",
+      "wait-otp",
+      "fill-otp",
+      "submit",
+      "credentials",
+      "finish-order",
+    ]);
+    expect(steps.indexOf("opening_sms_login")).toBeLessThan(steps.indexOf("ordering_5sim_number"));
+    expect(account.providerSpecificData.fiveSimOrderId).toBe("order-1");
+    expect(deps.setOrderStatus).toHaveBeenCalledWith("five-token", "finish", "order-1");
+  });
+
+  it("does not buy a 5sim number when the CodeBuddy CN SMS form is unavailable", async () => {
+    const orderNumber = vi.fn();
+    const deps = createFiveSimFlowDeps({ loginSurface: null, orderNumber });
+    const steps = [];
+
+    await expect(__test__.runFiveSimRegistrationFlow(
+      { options: { fiveSimApiKey: "five-token" }, cancelRequested: false },
+      { providerSpecificData: {} },
+      {},
+      (step) => steps.push(step),
+      deps,
+    )).rejects.toThrow("before buying a 5sim number");
+
+    expect(steps).toContain("opening_sms_login");
+    expect(orderNumber).not.toHaveBeenCalled();
+  });
+
+  it("caps CodeBuddy CN OTP request retries while waiting for 5sim", async () => {
+    const clickOtpButton = vi.fn(async () => ({ clicked: true, source: "auth_frame_locator" }));
+    const waitForOtp = vi.fn(async (_job, _orderId, _onStep, { retryOtpRequest }) => {
+      await retryOtpRequest();
+      await retryOtpRequest();
+      await retryOtpRequest();
+      return { code: "483920", order: { id: "order-1" } };
+    });
+    const deps = createFiveSimFlowDeps({ clickOtpButton, waitForOtp });
+    const steps = [];
+
+    await __test__.runFiveSimRegistrationFlow(
+      { options: { fiveSimApiKey: "five-token" }, cancelRequested: false },
+      { providerSpecificData: {} },
+      {},
+      (step) => steps.push(step),
+      deps,
+    );
+
+    expect(clickOtpButton).toHaveBeenCalledTimes(3);
+    expect(clickOtpButton).toHaveBeenNthCalledWith(1, expect.any(Object), {});
+    expect(clickOtpButton).toHaveBeenNthCalledWith(2, expect.any(Object), {}, { timeoutMs: 3_000 });
+    expect(clickOtpButton).toHaveBeenNthCalledWith(3, expect.any(Object), {}, { timeoutMs: 3_000 });
+    expect(steps.filter((step) => step === "requesting_otp_retry")).toHaveLength(2);
   });
 
   it("selects the recovered CodeBuddy CN mainland region after login", async () => {
