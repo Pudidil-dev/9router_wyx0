@@ -37,6 +37,7 @@ const CODEBUDDY_CN_HOME_URL = "https://www.codebuddy.cn/home/";
 const CODEBUDDY_CN_LOGIN_OPEN_TIMEOUT_MS = 45_000;
 const CODEBUDDY_CN_LOGIN_CLICK_TIMEOUT_MS = 8_000;
 const CODEBUDDY_CN_LOGIN_RETRY_INTERVAL_MS = 750;
+const CODEBUDDY_CN_CONTEXT_OPEN_TIMEOUT_MS = 20_000;
 const CODEBUDDY_CN_OTP_RETRY_INTERVAL_MS = 70_000;
 const CODEBUDDY_CN_MAX_OTP_REQUEST_ATTEMPTS = 3;
 const CODEBUDDY_CN_LOGIN_BUTTON_SELECTORS = [
@@ -120,6 +121,56 @@ const CODEBUDDY_CN_LIFECYCLE_METADATA_KEYS = [
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function assertJobNotCancelled(job) {
+  if (job?.cancelRequested) throw new Error("Job cancelled");
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function runJobExclusive(job, key, task) {
+  const previous = job?.[key] || Promise.resolve();
+  let release = null;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const next = previous.catch(() => null).then(() => gate);
+  job[key] = next;
+
+  await previous.catch(() => null);
+  try {
+    return await task();
+  } finally {
+    release?.();
+    if (job[key] === next) job[key] = null;
+  }
+}
+
+async function createCodeBuddyCnWorkerContext(job) {
+  return await runJobExclusive(job, "contextCreationPromise", async () => {
+    assertJobNotCancelled(job);
+    if (!job.browser) {
+      throw new Error("No automation browser is available for manual CodeBuddy CN registration");
+    }
+    return await withTimeout(
+      createFreshContext(job.browser),
+      CODEBUDDY_CN_CONTEXT_OPEN_TIMEOUT_MS,
+      "Timed out preparing a CodeBuddy CN browser context"
+    );
+  });
 }
 
 function nowIso() {
@@ -419,7 +470,7 @@ async function waitForFiveSimOtp(job, orderId, onStep, { retryOtpRequest = null 
   let nextRetryAt = Date.now() + CODEBUDDY_CN_OTP_RETRY_INTERVAL_MS;
 
   while (Date.now() < deadline) {
-    if (job.cancelRequested) throw new Error("Job cancelled");
+    assertJobNotCancelled(job);
 
     const order = await getFiveSimOrder(apiKey, orderId);
     const smsText = firstMeaningfulSmsText(order?.sms);
@@ -1117,18 +1168,22 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep, {
   waitForCredentials = waitForBrowserCredentialsOrApiKey,
   setOrderStatus = setFiveSimOrderStatus,
 } = {}) {
+  assertJobNotCancelled(job);
   const profile = await getProfile(job.options.fiveSimApiKey).catch(() => null);
+  assertJobNotCancelled(job);
   if (profile?.balance !== undefined) {
     onStep("checking_5sim_balance", `5sim balance: ${profile.balance}`);
   }
 
   onStep("opening_sms_login", "Opening CodeBuddy CN SMS login form before buying a 5sim number");
   const loginSurface = await openLoginUi(page);
+  assertJobNotCancelled(job);
   if (!loginSurface) {
     throw new Error("Could not open the CodeBuddy CN SMS login form automatically before buying a 5sim number");
   }
 
   onStep("ordering_5sim_number", "Getting number from 5sim");
+  assertJobNotCancelled(job);
   const order = await orderNumber(job, account);
   account.phone = order.phone;
   account.contactHint = order.phone;
@@ -1141,6 +1196,7 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep, {
     fiveSimPrice: order.price,
   };
   onStep("got_5sim_number", `Got number: ${order.phone} (#${order.id}${order.price !== null ? `, $${order.price}` : ""})`);
+  assertJobNotCancelled(job);
 
   const phoneFilled = await fillPhone(loginSurface, order.phone);
   if (!phoneFilled) {
@@ -1148,6 +1204,7 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep, {
   }
 
   let otpRequestAttempts = 1;
+  assertJobNotCancelled(job);
   onStep("requesting_otp", `Clicking CodeBuddy CN OTP button for ${order.phone}`);
   const requestResult = await clickOtpButton(loginSurface, page);
   if (!requestResult.clicked) {
@@ -1156,6 +1213,7 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep, {
   onStep("otp_requested", `Clicked CodeBuddy CN OTP button via ${requestResult.source}`);
 
   const retryOtpRequest = async () => {
+    assertJobNotCancelled(job);
     if (otpRequestAttempts >= CODEBUDDY_CN_MAX_OTP_REQUEST_ATTEMPTS) return;
     otpRequestAttempts += 1;
     onStep("requesting_otp_retry", `Retrying CodeBuddy CN OTP button (${otpRequestAttempts}/${CODEBUDDY_CN_MAX_OTP_REQUEST_ATTEMPTS})`);
@@ -1169,6 +1227,7 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep, {
 
   const otp = await waitForOtp(job, order.id, onStep, { retryOtpRequest });
 
+  assertJobNotCancelled(job);
   onStep("submitting_otp", "Submitting the OTP received from 5sim");
   const otpFilled = await fillOtp(loginSurface, otp.code);
   if (!otpFilled) {
@@ -1609,6 +1668,19 @@ export class CodeBuddyCnAutomationManager {
     }
 
     live.cancelRequested = true;
+    const activeAccounts = live.accounts.filter((account) => ACTIVE_JOB_STATUSES.has(account.status));
+    if (activeAccounts.length > 0) {
+      live.status = "cancelled";
+      live.finishedAt = live.finishedAt || nowIso();
+      activeAccounts.forEach((account) => {
+        this.finalizeAccount(account, "cancelled", {
+          error: "Job cancelled",
+          step: "cancelled",
+          message: "Job cancelled before completion",
+        });
+      });
+    }
+
     if (live.browser) {
       void live.browser.close().catch(() => null);
       live.browser = null;
@@ -1710,16 +1782,19 @@ export class CodeBuddyCnAutomationManager {
   }
 
   finalizeAccount(account, status, extras = {}) {
+    if (account.status === "cancelled" && status !== "cancelled") return account;
     account.status = status;
     account.error = extras.error || null;
     account.connectionId = extras.connectionId || null;
     if (extras.step || extras.message) {
       appendAccountLog(account, extras.step || status, extras.message || extras.error || status);
     }
+    return account;
   }
 
   setAccountStep(account, step, message, level = "info") {
-    appendAccountLog(account, step, message, level);
+    if (account.status === "cancelled") return null;
+    return appendAccountLog(account, step, message, level);
   }
 
   async persistJobSnapshot(job) {
@@ -1833,15 +1908,16 @@ export class CodeBuddyCnAutomationManager {
       return;
     }
 
-    if (!job.browser) {
-      throw new Error("No automation browser is available for manual CodeBuddy CN registration");
-    }
-
-    const { context, page } = await createFreshContext(job.browser);
-    account.runtimeSession = { context, page };
+    let context = null;
+    let page = null;
     let fiveSimOrderId = null;
 
     try {
+      this.setAccountStep(account, "preparing_browser_context", `Worker ${workerId} is preparing an isolated CodeBuddy CN browser context`);
+      ({ context, page } = await createCodeBuddyCnWorkerContext(job));
+      account.runtimeSession = { context, page };
+      assertJobNotCancelled(job);
+
       this.setAccountStep(account, "opening_codebuddy_cn", "Opening CodeBuddy CN in a browser window");
       await page.goto("https://www.codebuddy.cn", {
         waitUntil: "domcontentloaded",
@@ -1890,7 +1966,7 @@ export class CodeBuddyCnAutomationManager {
       await cancelFiveSimOrder(job, fiveSimOrderId || account.providerSpecificData?.fiveSimOrderId).catch(() => null);
     } finally {
       account.runtimeSession = null;
-      await context.close().catch(() => null);
+      await context?.close?.().catch(() => null);
     }
   }
 
@@ -1918,22 +1994,44 @@ export class CodeBuddyCnAutomationManager {
       await Promise.allSettled(workers);
 
       if (job.cancelRequested) {
-        job.status = "cancelled";
+        for (const account of job.accounts) {
+          if (ACTIVE_JOB_STATUSES.has(account.status)) {
+            this.finalizeAccount(account, "cancelled", {
+              error: "Job cancelled",
+              step: "cancelled",
+              message: "Job cancelled before completion",
+            });
+          }
+        }
+        job.status = job.accounts.some((account) => account.status === "cancelled") ? "cancelled" : "completed";
       } else if (job.accounts.some((account) => !TERMINAL_ACCOUNT_STATUSES.has(account.status))) {
         job.status = "running";
       } else {
         job.status = "completed";
       }
     } catch (error) {
-      job.status = "failed";
-      job.error = error.message || "Failed to run CodeBuddy CN automation";
-      for (const account of job.accounts) {
-        if (!TERMINAL_ACCOUNT_STATUSES.has(account.status)) {
-          this.finalizeAccount(account, "failed", {
-            error: job.error,
-            step: "failed",
-            message: job.error,
-          });
+      if (job.cancelRequested) {
+        job.status = "cancelled";
+        for (const account of job.accounts) {
+          if (ACTIVE_JOB_STATUSES.has(account.status)) {
+            this.finalizeAccount(account, "cancelled", {
+              error: "Job cancelled",
+              step: "cancelled",
+              message: "Job cancelled before completion",
+            });
+          }
+        }
+      } else {
+        job.status = "failed";
+        job.error = error.message || "Failed to run CodeBuddy CN automation";
+        for (const account of job.accounts) {
+          if (!TERMINAL_ACCOUNT_STATUSES.has(account.status)) {
+            this.finalizeAccount(account, "failed", {
+              error: job.error,
+              step: "failed",
+              message: job.error,
+            });
+          }
         }
       }
     } finally {
@@ -1982,4 +2080,5 @@ export const __test__ = {
   selectCodeBuddyCnRegion,
   mergeCodeBuddyCnUsageMetadata,
   runFiveSimRegistrationFlow,
+  createCodeBuddyCnWorkerContext,
 };

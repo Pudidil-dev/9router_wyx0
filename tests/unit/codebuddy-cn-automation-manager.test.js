@@ -369,6 +369,26 @@ describe("CodeBuddy CN automation manager helpers", () => {
     expect(orderNumber).not.toHaveBeenCalled();
   });
 
+  it("does not buy a 5sim number when cancellation arrives after the SMS form opens", async () => {
+    const job = { options: { fiveSimApiKey: "five-token" }, cancelRequested: false };
+    const orderNumber = vi.fn();
+    const deps = createFiveSimFlowDeps({ orderNumber });
+    deps.openLoginUi.mockImplementation(async () => {
+      job.cancelRequested = true;
+      return { name: "login-surface" };
+    });
+
+    await expect(__test__.runFiveSimRegistrationFlow(
+      job,
+      { providerSpecificData: {} },
+      {},
+      () => null,
+      deps,
+    )).rejects.toThrow("Job cancelled");
+
+    expect(orderNumber).not.toHaveBeenCalled();
+  });
+
   it("caps CodeBuddy CN OTP request retries while waiting for 5sim", async () => {
     const clickOtpButton = vi.fn(async () => ({ clicked: true, source: "auth_frame_locator" }));
     const waitForOtp = vi.fn(async (_job, _orderId, _onStep, { retryOtpRequest }) => {
@@ -515,6 +535,108 @@ describe("CodeBuddy CN automation manager helpers", () => {
     })).rejects.toThrow("Job cancelled");
 
     expect(saveConnection).not.toHaveBeenCalled();
+  });
+
+  it("immediately finalizes active live accounts when cancelling a job", () => {
+    const manager = new CodeBuddyCnAutomationManager({
+      storageName: "codebuddy-cn-live-cancel-test",
+    });
+    const close = vi.fn(async () => null);
+    const createdAt = "2026-06-24T00:00:00.000Z";
+    manager.jobs.set("job-cancel-test", {
+      jobId: "job-cancel-test",
+      status: "running",
+      createdAt,
+      startedAt: createdAt,
+      finishedAt: null,
+      concurrency: 3,
+      browserChoice: "camoufox",
+      browser: { close },
+      cancelRequested: false,
+      options: {},
+      error: null,
+      accounts: [
+        { line: 1, label: "Account 1", status: "running", workerId: 1, currentStep: "worker_assigned", logs: [] },
+        { line: 2, label: "Account 2", status: "queued", workerId: null, currentStep: "queued", logs: [] },
+        { line: 3, label: "Account 3", status: "needs_manual", workerId: 3, currentStep: "awaiting_manual_login", logs: [] },
+        { line: 4, label: "Account 4", status: "success", workerId: 4, currentStep: "connection_saved", logs: [], connectionId: "conn-1" },
+      ],
+    });
+
+    const cancelled = manager.cancelJob("job-cancel-test");
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.finishedAt).toBeTruthy();
+    expect(cancelled.summary).toMatchObject({
+      queued: 0,
+      running: 0,
+      needs_manual: 0,
+      cancelled: 3,
+      success: 1,
+    });
+    expect(cancelled.accounts.slice(0, 3).map((account) => account.status)).toEqual([
+      "cancelled",
+      "cancelled",
+      "cancelled",
+    ]);
+    expect(cancelled.accounts[0].currentStep).toBe("cancelled");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cancelled accounts cancelled when late browser callbacks finish", () => {
+    const manager = new CodeBuddyCnAutomationManager({
+      storageName: "codebuddy-cn-cancel-overwrite-test",
+    });
+    const account = {
+      line: 1,
+      label: "Account 1",
+      status: "cancelled",
+      error: "Job cancelled",
+      connectionId: null,
+      currentStep: "cancelled",
+      logs: [],
+    };
+
+    expect(manager.finalizeAccount(account, "success", {
+      connectionId: "late-connection",
+      step: "connection_saved",
+      message: "Late success",
+    })).toBe(account);
+    expect(manager.setAccountStep(account, "saving_connection", "Late callback")).toBeNull();
+
+    expect(account.status).toBe("cancelled");
+    expect(account.connectionId).toBeNull();
+    expect(account.currentStep).toBe("cancelled");
+    expect(account.logs).toEqual([]);
+  });
+
+  it("serializes CodeBuddy CN browser context creation per job", async () => {
+    const order = [];
+    let active = 0;
+    let maxActive = 0;
+    const browser = {
+      newContext: vi.fn(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        order.push(`start-${browser.newContext.mock.calls.length}`);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return {
+          newPage: vi.fn(async () => ({})),
+        };
+      }),
+    };
+    const job = { browser, cancelRequested: false };
+
+    await Promise.all([
+      __test__.createCodeBuddyCnWorkerContext(job),
+      __test__.createCodeBuddyCnWorkerContext(job),
+      __test__.createCodeBuddyCnWorkerContext(job),
+    ]);
+
+    expect(browser.newContext).toHaveBeenCalledTimes(3);
+    expect(maxActive).toBe(1);
+    expect(order).toEqual(["start-1", "start-2", "start-3"]);
   });
 
   it("preserves activation and gateway metadata during the first credit refresh", () => {
