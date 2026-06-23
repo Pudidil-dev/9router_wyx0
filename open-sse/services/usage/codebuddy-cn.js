@@ -27,15 +27,62 @@ import { PROVIDERS } from "../../providers/index.js";
 import { U, parseResetTime } from "./shared.js";
 import {
   resolveCodeBuddyCnCredential,
+  buildCodeBuddyCnAuthHeaders,
   buildCodeBuddyCnProviderMetadata,
 } from "../codebuddyCn.js";
 
 const PROVIDER_ID = "codebuddy-cn";
+const PRODUCT_CODE = "p_tcaca";
+const PAGE_SIZE = 100;
 
 // Prefer the *Precise string fields (exact), fall back to the numeric ones.
-function num(precise, plain) {
-  const n = Number(precise ?? plain);
-  return Number.isFinite(n) ? n : 0;
+function num(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function withBalance(total, used, remaining) {
+  const safeTotal = Math.max(0, total ?? ((used ?? 0) + (remaining ?? 0)));
+  const safeUsed = Math.max(0, used ?? Math.max(0, safeTotal - (remaining ?? 0)));
+  const safeRemaining = Math.max(0, remaining ?? Math.max(0, safeTotal - safeUsed));
+
+  return {
+    used: safeUsed,
+    total: safeTotal,
+    remaining: safeRemaining,
+    remainingPercentage: safeTotal > 0
+      ? Math.max(0, Math.min(100, (safeRemaining / safeTotal) * 100))
+      : 0,
+  };
+}
+
+function timestampMs(value) {
+  const parsed = parseResetTime(value);
+  return parsed ? new Date(parsed).getTime() : Number.POSITIVE_INFINITY;
+}
+
+function formatUsageDate(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function buildCodeBuddyCnUsageBody() {
+  const now = new Date();
+  const rangeEnd = new Date(now);
+  rangeEnd.setFullYear(rangeEnd.getFullYear() + 20);
+
+  return {
+    PageNumber: 1,
+    PageSize: PAGE_SIZE,
+    ProductCode: PRODUCT_CODE,
+    Status: [0, 3],
+    PackageEndTimeRangeBegin: formatUsageDate(now),
+    PackageEndTimeRangeEnd: formatUsageDate(rangeEnd),
+  };
 }
 
 // Label a refill pack by its cycle length (Monthly is the common CodeBuddy case).
@@ -70,13 +117,12 @@ export async function getCodeBuddyCnUsage(accessToken, apiKey, providerSpecificD
   try {
     const response = await proxyAwareFetch(U(PROVIDER_ID).url, {
       method: "POST",
-      headers: {
+      headers: buildCodeBuddyCnAuthHeaders(connectionLike, {
         ...(PROVIDERS[PROVIDER_ID]?.headers || {}),
-        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "application/json",
-      },
-      body: "{}",
+      }),
+      body: JSON.stringify(buildCodeBuddyCnUsageBody()),
     }, proxyOptions);
 
     if (response.status === 401 || response.status === 403) {
@@ -117,19 +163,18 @@ export async function getCodeBuddyCnUsage(accessToken, apiKey, providerSpecificD
       };
     }
 
-    const cycleEndMs = (acc) => {
-      const r = parseResetTime(acc.CycleEndTime);
-      return r ? new Date(r).getTime() : Number.POSITIVE_INFINITY;
-    };
     // Refill packs roll into a new cycle before the resource expires; bonus packs
     // end exactly at expiry. >2d gap between cycle end and validity end = refill.
     const REFILL_GAP_MS = 2 * 24 * 60 * 60 * 1000;
     const isRefill = (acc) => {
-      const ce = cycleEndMs(acc);
-      const de = Number(acc.DeductionEndTime);
+      const ce = timestampMs(acc.CycleEndTime);
+      const de = timestampMs(acc.DeductionEndTime || acc.ExpiredTime);
       return Number.isFinite(ce) && Number.isFinite(de) && de - ce > REFILL_GAP_MS;
     };
-    const byExpiry = (a, b) => cycleEndMs(a) - cycleEndMs(b);
+    const byExpiry = (a, b) => (
+      timestampMs(a.CycleEndTime || a.DeductionEndTime || a.ExpiredTime)
+      - timestampMs(b.CycleEndTime || b.DeductionEndTime || b.ExpiredTime)
+    );
 
     const refills = accounts.filter(isRefill).sort(byExpiry);
     const bonuses = accounts.filter((a) => !isRefill(a)).sort(byExpiry);
@@ -143,18 +188,26 @@ export async function getCodeBuddyCnUsage(accessToken, apiKey, providerSpecificD
       seenRefill[base] = (seenRefill[base] || 0) + 1;
       const name = seenRefill[base] > 1 ? `${base} ${seenRefill[base]}` : base;
       quotas[name] = {
-        used: num(acc.CycleCapacityUsedPrecise, acc.CycleCapacityUsed),
-        total: num(acc.CycleCapacitySizePrecise, acc.CycleCapacitySize),
+        ...withBalance(
+          num(acc.CycleCapacitySizePrecise, acc.CycleCapacitySize),
+          num(acc.CycleCapacityUsedPrecise, acc.CycleCapacityUsed),
+          num(acc.CycleCapacityRemainPrecise, acc.CycleCapacityRemain),
+        ),
         resetAt: parseResetTime(acc.CycleEndTime),
+        unit: "credits",
         unlimited: false,
       };
     });
     // Bonus packs: use the lifetime Capacity balance; resetAt is the expiry.
     bonuses.forEach((acc, i) => {
       quotas[`Bonus Pack ${i + 1}`] = {
-        used: num(acc.CapacityUsedPrecise, acc.CapacityUsed),
-        total: num(acc.CapacitySizePrecise, acc.CapacitySize),
-        resetAt: parseResetTime(acc.CycleEndTime),
+        ...withBalance(
+          num(acc.CapacitySizePrecise, acc.CapacitySize),
+          num(acc.CapacityUsedPrecise, acc.CapacityUsed),
+          num(acc.CapacityRemainPrecise, acc.CapacityRemain),
+        ),
+        resetAt: parseResetTime(acc.DeductionEndTime || acc.ExpiredTime || acc.CycleEndTime),
+        unit: "credits",
         unlimited: false,
       };
     });
