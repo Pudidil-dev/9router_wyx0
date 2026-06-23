@@ -153,26 +153,46 @@ describe("compatible provider connections API", () => {
     });
   });
 
-  it("returns 400 for a duplicate connection on the same compatible node", async () => {
+  it("allows multiple API-key connections for an OpenAI-compatible node", async () => {
     const ctx = await setupTestContext({
-      id: "openai-compatible-duplicate-test",
+      id: "openai-compatible-multiple-test",
       type: "openai-compatible",
-      name: "Duplicate Guard Node",
-      prefix: "dup",
+      name: "Multiple OpenAI Compatible Node",
+      prefix: "multi-oai",
       apiType: "chat",
-      baseUrl: "https://duplicate-guard.test/v1",
+      baseUrl: "https://multiple-openai-compatible.test/v1",
     });
     cleanup = ctx.cleanup;
 
     const firstResponse = await ctx.POST(makeRequest(ctx.node.id));
     const secondResponse = await ctx.POST(makeRequest(ctx.node.id));
-    const secondBody = await secondResponse.json();
     const storedConnections = await ctx.getProviderConnections({ provider: ctx.node.id });
 
     expect(firstResponse.status).toBe(201);
-    expect(secondResponse.status).toBe(400);
-    expect(secondBody.error).toContain("Only one connection is allowed");
-    expect(storedConnections).toHaveLength(1);
+    expect(secondResponse.status).toBe(201);
+    expect(storedConnections).toHaveLength(2);
     expectCompatibleConnection(storedConnections[0], ctx.node, { apiType: "chat" });
+    expectCompatibleConnection(storedConnections[1], ctx.node, { apiType: "chat" });
+  });
+
+  it("allows multiple API-key connections for an Anthropic-compatible node", async () => {
+    const ctx = await setupTestContext({
+      id: "anthropic-compatible-multiple-test",
+      type: "anthropic-compatible",
+      name: "Multiple Anthropic Compatible Node",
+      prefix: "multi-anthropic",
+      baseUrl: "https://multiple-anthropic-compatible.test/v1",
+    });
+    cleanup = ctx.cleanup;
+
+    const firstResponse = await ctx.POST(makeRequest(ctx.node.id));
+    const secondResponse = await ctx.POST(makeRequest(ctx.node.id));
+    const storedConnections = await ctx.getProviderConnections({ provider: ctx.node.id });
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    expect(storedConnections).toHaveLength(2);
+    expectCompatibleConnection(storedConnections[0], ctx.node);
+    expectCompatibleConnection(storedConnections[1], ctx.node);
   });
 });

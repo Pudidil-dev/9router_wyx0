@@ -169,7 +169,7 @@ export async function createProviderConnection(data) {
         if (incomingWs && existingWs) return incomingWs === existingWs;
         return true; // fallback: email-only match for non-workspace providers
       });
-    } else if (data.authType === "apikey" && data.name) {
+    } else if (data.authType === "apikey" && data.name && !data.skipNameDedup) {
       existing = all.find(c => c.authType === "apikey" && c.name === data.name);
     }
     // access_token: never dedup — user manages duplicates manually

@@ -16,6 +16,7 @@
 - Preserve stored data compatibility and migration order; never discard user data as an incidental fix.
 - Keep secrets out of logs, responses, fixtures, and committed files.
 - Make writes resilient to partial or concurrent operations using existing repository and transaction patterns.
+- Preserve provider-connection deduplication by default; use explicit repository options when a caller intentionally supports multiple same-name API-key connections.
 - Keep environment and data-directory handling centralized rather than hard-coding platform paths.
 - Changes to storage shape, credential lifecycle, or externally visible side effects require tests and documentation updates.
 

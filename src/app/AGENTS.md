@@ -17,6 +17,7 @@
 - Preserve Next.js server/client boundaries; add `"use client"` only where browser state or APIs require it.
 - Keep dashboard behavior aligned with the corresponding API contract and shared store.
 - Keep provider-detail bulk connection actions scoped to the selected connection IDs, and require confirmation before destructive bulk actions.
+- Provider management APIs allow multiple saved OpenAI- and Anthropic-compatible connections per compatible node; custom embedding nodes remain single-connection unless that contract is intentionally changed.
 - Present Camoufox as the single automation runtime in dashboard flows; do not expose browser-runtime selection controls.
 - Keep `/api/system/capacity` limited to coarse server CPU/RAM capacity data for local worker recommendations; do not expose sensitive host details.
 - Keep CodeBuddy CN out of the generic OAuth Providers section: its provider detail deep-links to the dedicated Automation tab, where OAuth and 5sim bulk registration remain separate modes.
