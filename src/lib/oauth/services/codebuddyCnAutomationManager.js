@@ -11,6 +11,7 @@ import {
   CODEBUDDY_CN_PROBE_URL,
 } from "open-sse/services/codebuddyCn.js";
 import {
+  CN_CONSOLE_ACCOUNTS_URL,
   CN_DEFAULT_REGION,
   CN_FALLBACK_REGION,
 } from "open-sse/executors/codebuddy-cn/config.js";
@@ -24,6 +25,7 @@ const MAX_ACCOUNT_LOG_ENTRIES = 40;
 const MAX_JOB_ACTIVITY_ENTRIES = 80;
 const RECENT_TERMINAL_JOB_WINDOW_MS = 30 * 60_000;
 const DEFAULT_MANUAL_TIMEOUT_MS = 15 * 60_000;
+const MANUAL_SANDBOX_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_CONCURRENCY = 2;
 const MIN_CONCURRENCY = 1;
@@ -397,10 +399,30 @@ async function codeBuddyCnRequestViaPage(page, method, url, body = null) {
   );
 }
 
-async function createCodeBuddyCnApiKeyViaPage(page) {
+// Probe /console/accounts the way the proven enow flow does: a 200 with code 0
+// and at least one account is an authoritative "the login completed" signal, and
+// it yields the user_enterprise_id required for API key creation.
+async function fetchCodeBuddyCnAccountContext(page) {
+  const result = await codeBuddyCnRequestViaPage(page, "GET", CN_CONSOLE_ACCOUNTS_URL).catch(
+    () => ({ status: 0, json: null })
+  );
+  const accounts = result?.json?.data?.accounts || [];
+  const first = accounts[0] || {};
+  return {
+    loggedIn: result.status === 200 && result?.json?.code === 0 && accounts.length > 0,
+    enterpriseId: String(
+      first.userEnterpriseId || first.user_enterprise_id || "personal-edition-user-id"
+    ),
+    uid: String(first.uid || ""),
+  };
+}
+
+async function createCodeBuddyCnApiKeyViaPage(page, context = null) {
+  const accountContext = context || (await fetchCodeBuddyCnAccountContext(page).catch(() => null));
   const result = await codeBuddyCnRequestViaPage(page, "POST", CODEBUDDY_CN_PROBE_URL, {
     name: createCodeBuddyCnApiKeyName(),
     expire_in_days: -1,
+    user_enterprise_id: accountContext?.enterpriseId || "personal-edition-user-id",
   });
 
   if (result.status !== 200) {
@@ -434,6 +456,77 @@ async function clickButtonByText(page, patterns = []) {
     }
     return false;
   }, lowered).catch(() => false);
+}
+
+// Ticks the TDesign agreement checkbox AND clicks "同意" on the
+// 服务条款与隐私协议 (Terms of Service & Privacy Agreement) confirmation modal.
+// Runs against the page and every frame because the consent can appear at either
+// level. The real <input.t-checkbox__former> is hidden (tabindex=-1) and TDesign
+// ignores a raw `.checked = true`, so we click the label/styled box instead.
+async function acceptCodeBuddyCnAgreement(page) {
+  const targets = [page, ...(typeof page.frames === "function" ? page.frames() : [])];
+  let acted = false;
+
+  for (const target of targets) {
+    const result = await target.evaluate(() => {
+      let didSomething = false;
+
+      // 1) Tick every unchecked TDesign agreement checkbox ("我已阅读并同意 …").
+      for (const former of Array.from(document.querySelectorAll("input.t-checkbox__former"))) {
+        if (former.checked) continue;
+        const label = former.closest("label") || former.parentElement;
+        const box = (label && label.querySelector(".t-checkbox__input")) || label;
+        if (box) {
+          box.click();
+          didSomething = true;
+        }
+        if (!former.checked) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
+          if (setter) setter.call(former, true);
+          else former.checked = true;
+          former.dispatchEvent(new Event("change", { bubbles: true }));
+          didSomething = true;
+        }
+      }
+
+      // 2) Click "同意" (Agree) on the consent modal. Whitespace-stripped exact
+      //    match so we never accidentally click "不同意" (Disagree).
+      const agreeTexts = ["同意", "同意并继续", "同意并登录", "我同意", "agree", "accept"];
+      for (const el of Array.from(document.querySelectorAll('button, .t-button, [role="button"], a'))) {
+        if (el.offsetParent === null) continue;
+        const text = (el.textContent || "").replace(/\s+/g, "").toLowerCase();
+        if (!text) continue;
+        if (text.startsWith("不同意") || text.includes("disagree")) continue;
+        if (agreeTexts.some((candidate) => text === candidate.toLowerCase())) {
+          el.click();
+          didSomething = true;
+          return true;
+        }
+      }
+
+      return didSomething;
+    }).catch(() => false);
+
+    if (result) acted = true;
+  }
+
+  return acted;
+}
+
+// Detects CodeBuddy CN's "access restricted" interstitial. Per the proven enow
+// flow, the session cookies are still valid here, so we bypass the UI and mint
+// the API key straight from the backend.
+async function isCodeBuddyCnRestricted(page) {
+  return await page.evaluate(() => {
+    const text = (document.body && document.body.innerText) || "";
+    return (
+      text.includes("访问受限") ||
+      text.includes("账号访问受限") ||
+      text.includes("暂时受限") ||
+      text.includes("Account Access Restricted") ||
+      text.toLowerCase().includes("temporarily restricted")
+    );
+  }).catch(() => false);
 }
 
 async function clickPrimaryCodeBuddyCnLoginButton(page) {
@@ -500,15 +593,6 @@ function getCodeBuddyCnLoginFrame(page) {
   }) || null;
 }
 
-function getCodeBuddyCnPhoneFrame(page) {
-  // The phone input is in a nested iframe within the login iframe
-  return page.frames().find((frame) => {
-    const url = frame.url();
-    return url.includes("/auth/realms/copilot/protocol/openid-connect/auth") ||
-           url.includes("phone-iframe");
-  }) || null;
-}
-
 async function waitForCodeBuddyCnLoginSurface(page, timeoutMs = 15_000) {
   const startedAt = Date.now();
   while ((Date.now() - startedAt) < timeoutMs) {
@@ -523,6 +607,8 @@ async function hasCodeBuddyCnAuthInputs(target) {
   return await target.evaluate(() => {
     const inputs = Array.from(document.querySelectorAll("input"));
     return inputs.some((input) => {
+      if (input.type === "hidden") return false;
+      if (input.getClientRects().length === 0) return false; // must be visible/rendered
       const hint = [
         input.type,
         input.name,
@@ -530,205 +616,356 @@ async function hasCodeBuddyCnAuthInputs(target) {
         input.placeholder,
         input.autocomplete,
         input.getAttribute("aria-label"),
+        input.className,
       ].join(" ").toLowerCase();
       return /(phone|mobile|tel|手机|号码|otp|code|验证码|verif)/i.test(hint);
     });
   }).catch(() => false);
 }
 
+// The phone/OTP form may live inline in the login iframe (Tencent login) OR in a
+// nested Keycloak iframe — and the iframe URLs vary. Rather than guess by URL,
+// scan the page and every frame and return the first surface that actually
+// exposes visible phone/OTP inputs.
+async function findCodeBuddyCnAuthSurface(page) {
+  const frames = typeof page.frames === "function" ? page.frames() : [];
+  for (const frame of frames) {
+    if (await hasCodeBuddyCnAuthInputs(frame)) return frame;
+  }
+  if (await hasCodeBuddyCnAuthInputs(page)) return page;
+  return null;
+}
+
 async function clickPhoneLoginInModal(page) {
-  // Inside the login iframe, click the checkbox + "手机号" option
-  const loginFrame = getCodeBuddyCnLoginFrame(page);
-  if (!loginFrame) return false;
+  // The login surface may be the page itself or any frame, and its URL varies,
+  // so run the selection across every target rather than one URL-matched frame.
+  const frames = typeof page.frames === "function" ? page.frames() : [];
+  const targets = frames.length ? frames : [page];
+  let acted = false;
 
-  try {
-    // Step 1: Check the agreement checkbox
-    await loginFrame.evaluate(() => {
-      const checkbox = document.querySelector('.t-checkbox__former');
-      if (checkbox) {
-        checkbox.click();
-        if (!checkbox.checked) {
-          checkbox.checked = true;
-          checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }
-    }).catch(() => null);
-    await wait(500);
+  for (const target of targets) {
+    const result = await target.evaluate(() => {
+      let did = false;
 
-    // Step 2: Click "手机号" (phone number login option)
-    const clicked = await loginFrame.evaluate(() => {
-      // Try multiple strategies to find the phone option
-      // Strategy 1: exact text match on leaf elements
-      const allEls = Array.from(document.querySelectorAll('div, span, a, p, li'));
-      for (const el of allEls) {
-        if (el.children.length === 0 && (el.textContent || '').trim() === '手机号') {
-          // Click the parent container which is usually the clickable element
-          const target = el.closest('[class*="item"]') || el.closest('[class*="other"]') || el.parentElement || el;
-          target.click();
+      const visible = (el) => el && el.offsetParent !== null;
+      const norm = (el) => (el.textContent || "").replace(/\s+/g, "");
+      const clickByText = (texts, { exact = false } = {}) => {
+        const matches = (el) => {
+          const text = norm(el);
+          if (!text) return false;
+          return exact ? texts.includes(text) : texts.some((candidate) => text.includes(candidate));
+        };
+        for (const el of Array.from(document.querySelectorAll('div, span, a, p, li, button, [role="tab"]'))) {
+          if (!visible(el)) continue;
+          if (!matches(el)) continue;
+          // Click only the INNERMOST matching element. A wrapper that merely
+          // contains "手机号" somewhere inside it has a matching descendant, so we
+          // skip it and click the actual button/leaf instead — otherwise the QR
+          // screen never switches to the phone-number form.
+          const hasMatchingChild = Array.from(el.querySelectorAll("*")).some(
+            (child) => visible(child) && matches(child)
+          );
+          if (hasMatchingChild) continue;
+          const clickTarget =
+            el.closest('[class*="item"]') ||
+            el.closest('[class*="tab"]') ||
+            el.closest('[class*="other"]') ||
+            el.closest('[class*="login"]') ||
+            el;
+          clickTarget.click();
           return true;
         }
-      }
-      // Strategy 2: find by class hints
-      const phoneItems = document.querySelectorAll('[class*="phone"], [class*="mobile"]');
-      for (const item of phoneItems) {
-        const text = (item.textContent || '').trim();
-        if (text === '手机号' || text.includes('手机号')) {
-          item.click();
-          return true;
+        return false;
+      };
+
+      // 1) Tick the TDesign agreement checkbox (label/styled box, not the hidden input).
+      for (const former of Array.from(document.querySelectorAll("input.t-checkbox__former"))) {
+        if (former.checked) continue;
+        const label = former.closest("label") || former.parentElement;
+        const box = (label && label.querySelector(".t-checkbox__input")) || label;
+        if (box) {
+          box.click();
+          did = true;
+        }
+        if (!former.checked) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
+          if (setter) setter.call(former, true);
+          else former.checked = true;
+          former.dispatchEvent(new Event("change", { bubbles: true }));
+          did = true;
         }
       }
-      return false;
+
+      // 2) Make sure the 个人 (personal) tab is active, not 企业 (enterprise).
+      if (clickByText(["个人"], { exact: true })) did = true;
+
+      // 3) Reveal alternative methods if the phone option is hidden behind them.
+      clickByText(["其他登录方式"], { exact: true });
+
+      // 4) Select the phone-number login method.
+      if (clickByText(["手机号验证登录", "手机号登录", "手机验证码登录", "验证码登录", "手机号"])) did = true;
+
+      return did;
     }).catch(() => false);
 
-    if (clicked) {
-      await wait(2_000);
-      return true;
-    }
-  } catch {
-    // Ignore errors
+    if (result) acted = true;
   }
-  return false;
+
+  if (acted) await wait(1_500);
+  return acted;
 }
 
 async function openCodeBuddyCnLoginUi(page) {
+  // Step 0: Dismiss any Terms/Privacy consent modal that blocks interaction.
+  await acceptCodeBuddyCnAgreement(page).catch(() => false);
+
   // Step 1: Click the main login button on the page
   const loginClicked = await clickPrimaryCodeBuddyCnLoginButton(page);
   if (loginClicked) {
     await wait(2_000);
+    await acceptCodeBuddyCnAgreement(page).catch(() => false);
   }
 
-  // Step 2: Wait for the login modal iframe to appear
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  // Step 2: Drive the modal until a surface with real phone/OTP inputs appears.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    // The consent modal can re-appear at any step; keep clearing it.
+    await acceptCodeBuddyCnAgreement(page).catch(() => false);
+
+    // The phone form may already be present (inline in the login iframe). Scanning
+    // every frame for the actual inputs — instead of one URL-matched frame — is
+    // what unsticks the 手机号验证登录 screen.
+    let surface = await findCodeBuddyCnAuthSurface(page);
+    if (surface) return surface;
+
+    // Not visible yet: (re)open the login modal and select the phone method.
     const loginFrame = await waitForCodeBuddyCnLoginSurface(page, 3_000);
-    if (!loginFrame) {
-      // If no login frame after first attempt, try navigating
-      if (attempt === 0) {
-        await page.goto("https://www.codebuddy.cn/home/", {
-          waitUntil: "domcontentloaded",
-          timeout: 30_000,
-        }).catch(() => null);
-        await wait(2_000);
-        await clickPrimaryCodeBuddyCnLoginButton(page);
-        await wait(2_000);
-      }
-      continue;
-    }
-
-    // Step 3: Check if the phone iframe (nested) already has inputs
-    const phoneFrame = getCodeBuddyCnPhoneFrame(page);
-    if (phoneFrame) {
-      const phoneReady = await hasCodeBuddyCnAuthInputs(phoneFrame);
-      if (phoneReady) return phoneFrame;
-      // Wait for phone frame to fully load
-      await phoneFrame.waitForLoadState?.("domcontentloaded", { timeout: 5_000 }).catch(() => null);
-      await wait(1_000);
-      const phoneReady2 = await hasCodeBuddyCnAuthInputs(phoneFrame);
-      if (phoneReady2) return phoneFrame;
-    }
-
-    // Step 4: Click checkbox + "手机号" inside the login modal
-    const phoneClicked = await clickPhoneLoginInModal(page);
-    if (phoneClicked) {
+    if (!loginFrame && attempt === 0) {
+      await page.goto("https://www.codebuddy.cn/home/", {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      }).catch(() => null);
       await wait(2_000);
+      await clickPrimaryCodeBuddyCnLoginButton(page);
+      await wait(2_000);
+      await acceptCodeBuddyCnAgreement(page).catch(() => false);
     }
 
-    // Step 5: Check again for the nested phone iframe
-    const phoneFrame2 = getCodeBuddyCnPhoneFrame(page);
-    if (phoneFrame2) {
-      await phoneFrame2.waitForLoadState?.("domcontentloaded", { timeout: 5_000 }).catch(() => null);
-      await wait(1_500);
-      const phoneReady = await hasCodeBuddyCnAuthInputs(phoneFrame2);
-      if (phoneReady) return phoneFrame2;
-    }
+    await clickPhoneLoginInModal(page).catch(() => false);
+    await wait(1_500);
+
+    surface = await findCodeBuddyCnAuthSurface(page);
+    if (surface) return surface;
+
+    await wait(1_000);
   }
 
   return null;
 }
 
-async function fillPhoneInput(target, phoneNumber) {
-  // The phone input is in a nested iframe with specific selectors
-  return await target.evaluate((value) => {
-    const normalized = String(value || "").replace(/[^\d]/g, "");
-    
-    // Strategy 1: Try the exact selector we found
-    const phoneInput = document.querySelector('#phoneNumber') || 
-                       document.querySelector('input.kc-phone-number-input') ||
-                       document.querySelector('input[placeholder*="手机"]');
-    
-    if (phoneInput && phoneInput.type !== 'hidden') {
-      phoneInput.focus();
-      phoneInput.value = normalized;
-      phoneInput.dispatchEvent(new Event("input", { bubbles: true }));
-      phoneInput.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
+function valuesMatch(actual, expected) {
+  return String(actual ?? "").trim() === String(expected ?? "").trim();
+}
+
+async function readInputValueBySelector(target, selector) {
+  try {
+    const base = target.locator?.(selector);
+    if (!base) return null;
+    const locator = base.first ? base.first() : base;
+    if ((await locator.count?.().catch(() => 0)) === 0) return null;
+    const value = await locator.inputValue?.().catch(() => null);
+    return value === undefined ? null : value;
+  } catch {
+    return null;
+  }
+}
+
+// Port of enow's proven `_fill_input`. Assigning `el.value` directly is swallowed
+// by React/Vue controlled inputs (their patched value setter keeps the internal
+// tracker in sync, so the dispatched `input` event reports "no change" and the
+// framework state stays empty). CodeBuddy CN's login surface (TDesign modal +
+// Keycloak phone iframe) behaves exactly this way — which is why the OTP could be
+// "filled" yet the submitted form was empty, hanging the job until timeout.
+// We try (1) Playwright's native fill, (2) the prototype value setter that bypasses
+// the framework tracker, then (3) real keyboard typing — VERIFYING the value
+// actually registered after each attempt instead of assuming success.
+async function fillInputReliably(target, selectors, value) {
+  const normalized = String(value ?? "");
+
+  for (const selector of selectors) {
+    let locator = null;
+    try {
+      const base = target.locator?.(selector);
+      locator = base?.first ? base.first() : base;
+      if (!locator) continue;
+      if ((await locator.count?.().catch(() => 0)) === 0) continue;
+      if (locator.isVisible && !(await locator.isVisible().catch(() => false))) continue;
+    } catch {
+      continue;
     }
-    
-    // Strategy 2: Fallback to generic phone input detection
-    const inputs = Array.from(document.querySelectorAll("input"));
-    for (const input of inputs) {
-      if (input.type === 'hidden') continue;
-      const hint = [
-        input.type,
-        input.name,
-        input.id,
-        input.placeholder,
-        input.autocomplete,
-        input.getAttribute("aria-label"),
-        input.className,
-      ].join(" ").toLowerCase();
-      if (/(phone|mobile|tel|手机|号码)/i.test(hint)) {
-        input.focus();
-        input.value = normalized;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        return true;
+
+    // Strategy 1: Playwright native fill (focus + clear + type with real events).
+    try {
+      if (locator.fill) {
+        await locator.fill(normalized, { timeout: 3_000 });
+        if (valuesMatch(await readInputValueBySelector(target, selector), normalized)) return true;
       }
+    } catch {
+      // fall through to the next strategy
     }
+
+    // Strategy 2: prototype value setter — React/Vue controlled-input safe.
+    try {
+      await target.evaluate(
+        ({ sel, val }) => {
+          const el = document.querySelector(sel);
+          if (!el) return;
+          el.focus();
+          const proto = window.HTMLInputElement && window.HTMLInputElement.prototype;
+          const setter = proto ? Object.getOwnPropertyDescriptor(proto, "value")?.set : null;
+          if (setter) setter.call(el, val);
+          else el.value = val;
+          el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        },
+        { sel: selector, val: normalized }
+      );
+      if (valuesMatch(await readInputValueBySelector(target, selector), normalized)) return true;
+    } catch {
+      // fall through to the next strategy
+    }
+
+    // Strategy 3: real keyboard typing (slow, but defeats guarded inputs).
+    try {
+      await locator.click?.({ timeout: 1_500 }).catch(() => null);
+      await locator.press?.("Control+a").catch(() => null);
+      await locator.press?.("Backspace").catch(() => null);
+      if (locator.pressSequentially) {
+        await locator.pressSequentially(normalized, { delay: 35 });
+      } else if (locator.type) {
+        await locator.type(normalized, { delay: 35 });
+      }
+      if (valuesMatch(await readInputValueBySelector(target, selector), normalized)) return true;
+    } catch {
+      // fall through to the next selector
+    }
+  }
+
+  return false;
+}
+
+// Generic fallback when none of the explicit selectors match: find the first
+// visible input whose attributes match a hint, fill it via the prototype value
+// setter, and verify the value registered inside the same evaluate call.
+async function fillFirstMatchingInput(target, hintSource, value) {
+  try {
+    return Boolean(
+      await target.evaluate(
+        ({ hint, val }) => {
+          const pattern = new RegExp(hint, "i");
+          for (const el of Array.from(document.querySelectorAll("input"))) {
+            if (el.type === "hidden") continue;
+            if (el.offsetParent === null) continue;
+            const signature = [
+              el.type,
+              el.name,
+              el.id,
+              el.placeholder,
+              el.autocomplete,
+              el.getAttribute("aria-label"),
+              el.className,
+            ].join(" ");
+            if (!pattern.test(signature)) continue;
+            el.focus();
+            const proto = window.HTMLInputElement && window.HTMLInputElement.prototype;
+            const setter = proto ? Object.getOwnPropertyDescriptor(proto, "value")?.set : null;
+            if (setter) setter.call(el, val);
+            else el.value = val;
+            el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+            return String(el.value || "").trim() === String(val || "").trim();
+          }
+          return false;
+        },
+        { hint: hintSource, val: String(value ?? "") }
+      )
+    );
+  } catch {
     return false;
-  }, phoneNumber).catch(() => false);
+  }
+}
+
+async function fillPhoneInput(target, phoneNumber) {
+  const normalized = String(phoneNumber || "").replace(/[^\d]/g, "");
+  const filled = await fillInputReliably(target, [
+    "#phoneNumber",
+    "input.kc-phone-number-input",
+    'input[placeholder*="手机"]',
+    'input[name="phoneNumber"]',
+    'input[type="tel"]',
+    'input[autocomplete="tel"]',
+  ], normalized);
+  if (filled) return true;
+  return await fillFirstMatchingInput(target, "(phone|mobile|tel|手机|号码)", normalized);
 }
 
 async function fillOtpInput(target, otpCode) {
-  // The OTP input is in the nested iframe with specific selectors
-  return await target.evaluate((value) => {
-    const normalized = String(value || "").replace(/[^\d]/g, "");
-    
-    // Strategy 1: Try the exact selector we found
-    const otpInput = document.querySelector('#code') || 
-                     document.querySelector('input.pf-c-form-control') ||
-                     document.querySelector('input[placeholder*="验证码"]');
-    
-    if (otpInput && otpInput.type !== 'hidden') {
-      otpInput.focus();
-      otpInput.value = normalized;
-      otpInput.dispatchEvent(new Event("input", { bubbles: true }));
-      otpInput.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
-    }
-    
-    // Strategy 2: Fallback to generic OTP input detection
-    const inputs = Array.from(document.querySelectorAll("input"));
-    for (const input of inputs) {
-      if (input.type === 'hidden') continue;
-      const hint = [
-        input.type,
-        input.name,
-        input.id,
-        input.placeholder,
-        input.autocomplete,
-        input.getAttribute("aria-label"),
-        input.className,
-      ].join(" ").toLowerCase();
-      if (/(otp|code|验证码|verif)/i.test(hint)) {
-        input.focus();
-        input.value = normalized;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
+  const normalized = String(otpCode || "").replace(/[^\d]/g, "");
+  const filled = await fillInputReliably(target, [
+    "#code",
+    "input.pf-c-form-control",
+    'input[placeholder*="验证码"]',
+    'input[name="code"]',
+    'input[autocomplete="one-time-code"]',
+    'input[inputmode="numeric"]',
+  ], normalized);
+  if (filled) return true;
+  return await fillFirstMatchingInput(target, "(otp|code|验证码|verif)", normalized);
+}
+
+async function submitCodeBuddyCnOtp(target) {
+  // Prefer the form's real submit control instead of a fuzzy text scan over
+  // div/span, which could click an unrelated element and leave the form unsent.
+  const clicked = await target.evaluate(() => {
+    const keywords = ["登录", "确认", "确定", "verify", "submit", "sign in", "log in", "login", "continue", "继续"];
+    const candidates = [
+      document.querySelector('input[type="submit"]'),
+      document.querySelector('button[type="submit"]'),
+      document.querySelector("#kc-login"),
+      document.querySelector(".kc-login"),
+      document.querySelector(".code-btn-submit"),
+      ...Array.from(document.querySelectorAll('button, input[type="button"], [role="button"]')),
+    ].filter(Boolean);
+    for (const el of candidates) {
+      if (!el || el.offsetParent === null) continue;
+      const text = String(el.textContent || el.value || "").trim().toLowerCase();
+      if (!text) continue;
+      if (keywords.some((keyword) => text.includes(keyword.toLowerCase()))) {
+        el.click();
         return true;
       }
     }
+    // Last resort: submit the enclosing form of the OTP field directly.
+    const otp = document.querySelector('#code, input.pf-c-form-control, input[autocomplete="one-time-code"]');
+    if (otp && otp.form) {
+      if (typeof otp.form.requestSubmit === "function") otp.form.requestSubmit();
+      else otp.form.submit();
+      return true;
+    }
     return false;
-  }, otpCode).catch(() => false);
+  }).catch(() => false);
+
+  // Pressing Enter on the OTP field reliably submits Keycloak-style forms.
+  try {
+    const base = target.locator?.('#code, input.pf-c-form-control, input[autocomplete="one-time-code"]');
+    const otp = base?.first ? base.first() : base;
+    if (otp && (await otp.count?.().catch(() => 0)) > 0) {
+      await otp.press?.("Enter").catch(() => null);
+    }
+  } catch {
+    // ignore — the click/form submit above may already have triggered login
+  }
+
+  return clicked;
 }
 
 async function tryRequestOtpViaPage(page, phoneNumber) {
@@ -745,16 +982,34 @@ async function waitForBrowserCredentialsOrApiKey(job, page, onStep) {
     const extracted = await extractCredentialsFromBrowser(page);
     if (extracted) return extracted;
 
-    try {
-      const apiKey = await createCodeBuddyCnApiKeyViaPage(page);
-      if (apiKey) {
-        return {
-          apiKey,
-          cookiesJson: JSON.stringify(await page.context().cookies().catch(() => [])),
-        };
+    // Clear any consent modal that may be covering the post-login page.
+    await acceptCodeBuddyCnAgreement(page).catch(() => false);
+
+    // Confirm the OTP login actually completed before trying to mint an API key.
+    // Without this gate a failed/empty OTP submit just spun here until the full
+    // smsTimeout elapsed — the "stuck even though the OTP arrived" symptom.
+    const accountContext = await fetchCodeBuddyCnAccountContext(page).catch(() => null);
+    // If the UI shows an "access restricted" page, the cookies are still valid:
+    // mint the API key straight from the backend (the normal CodeBuddy flow).
+    const restricted = accountContext?.loggedIn ? false : await isCodeBuddyCnRestricted(page);
+    if (accountContext?.loggedIn || restricted) {
+      onStep?.(
+        "codebuddy_cn_login_confirmed",
+        restricted
+          ? "CodeBuddy CN access restricted; minting API key via backend"
+          : "CodeBuddy CN login confirmed; creating API key"
+      );
+      try {
+        const apiKey = await createCodeBuddyCnApiKeyViaPage(page, accountContext);
+        if (apiKey) {
+          return {
+            apiKey,
+            cookiesJson: JSON.stringify(await page.context().cookies().catch(() => [])),
+          };
+        }
+      } catch {
+        // Region/trial may still be settling; keep polling until it succeeds.
       }
-    } catch {
-      // The account may not be fully logged in yet; keep polling.
     }
 
     onStep?.("awaiting_browser_session", "Waiting for CodeBuddy CN session cookies or API key");
@@ -792,7 +1047,7 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep) {
 
   const phoneFilled = await fillPhoneInput(loginSurface, order.phone);
   if (!phoneFilled) {
-    throw new Error("Could not locate the CodeBuddy CN phone number input");
+    throw new Error("Could not enter the phone number into the CodeBuddy CN login form");
   }
 
   onStep("requesting_otp", `Requesting OTP for ${order.phone}`);
@@ -835,10 +1090,12 @@ async function runFiveSimRegistrationFlow(job, account, page, onStep) {
   onStep("submitting_otp", "Submitting the OTP received from 5sim");
   const otpFilled = await fillOtpInput(loginSurface, otp.code);
   if (!otpFilled) {
-    throw new Error("Found OTP from 5sim but could not locate a CodeBuddy CN OTP input");
+    throw new Error("Found OTP from 5sim but could not enter it into the CodeBuddy CN OTP input");
   }
 
-  await clickButtonByText(loginSurface, ["login", "sign in", "verify", "submit", "确认", "登录", "继续", "continue"]).catch(() => false);
+  await submitCodeBuddyCnOtp(loginSurface).catch(() => false);
+  // A Terms/Privacy consent modal frequently pops up right after OTP submit.
+  await acceptCodeBuddyCnAgreement(page).catch(() => false);
 
   const credentials = await waitForBrowserCredentialsOrApiKey(job, page, onStep);
   await setFiveSimOrderStatus(job.options.fiveSimApiKey, "finish", order.id).catch(() => null);
@@ -957,8 +1214,8 @@ function mergeCodeBuddyCnUsageMetadata(providerSpecificData = {}, usage = {}) {
   return merged;
 }
 
-async function defaultBrowserLauncher(browser = DEFAULT_AUTOMATION_BROWSER) {
-  return await createAutomationBrowserLauncher(browser, { headless: true })();
+async function defaultBrowserLauncher(browser = DEFAULT_AUTOMATION_BROWSER, { headless = true } = {}) {
+  return await createAutomationBrowserLauncher(browser, { headless })();
 }
 
 async function defaultSaveConnection(account) {
@@ -1087,23 +1344,6 @@ async function extractCredentialsFromBrowser(page) {
   return null;
 }
 
-async function waitForManualCredentials(job, account, page, onStep) {
-  const deadline = Date.now() + (job.options.smsTimeoutMs || DEFAULT_MANUAL_TIMEOUT_MS);
-  while (Date.now() < deadline) {
-    if (job.cancelRequested) {
-      throw new Error("Job cancelled");
-    }
-
-    onStep("awaiting_manual_login", "Waiting for manual login or credential capture");
-    const found = await extractCredentialsFromBrowser(page);
-    if (found) return found;
-
-    await new Promise((resolve) => setTimeout(resolve, job.options.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS));
-  }
-
-  throw new Error("Timed out waiting for CodeBuddy CN credentials from the browser session");
-}
-
 function cancelPersistedActiveJob(job) {
   if (!job || !ACTIVE_JOB_STATUSES.has(job.status)) return job || null;
 
@@ -1226,6 +1466,66 @@ export class CodeBuddyCnAutomationManager {
             : "Queued browser-assisted registration"),
         ],
       })),
+    };
+
+    this.jobs.set(jobId, job);
+    this.latestJobId = jobId;
+    writePersistedLatestJobId(jobId, this.metaFile);
+    await this.persistJobSnapshot(job);
+    void this.runJob(jobId);
+    return sanitizeJob(job);
+  }
+
+  // Opens a visible (headful) CodeBuddy CN browser window for the operator to log
+  // in by hand — no 5sim. Once the session is live, the API key is minted via the
+  // backend and the connection is saved automatically (the manual path in
+  // processAccount handles capture + finish).
+  async startManualSandboxLogin({ browser, name = "", manualTimeout } = {}) {
+    const createdAt = nowIso();
+    const jobId = randomUUID();
+    const label = String(name || "").trim() || "Manual CodeBuddy CN Login";
+    const timeoutMs = Math.max(
+      60_000,
+      (Number.parseInt(manualTimeout, 10) || MANUAL_SANDBOX_TIMEOUT_MS / 1000) * 1000
+    );
+
+    const job = {
+      jobId,
+      status: "running",
+      mode: "manual_sandbox",
+      headless: false,
+      createdAt,
+      startedAt: createdAt,
+      finishedAt: null,
+      error: null,
+      cancelRequested: false,
+      browser: null,
+      browserChoice: normalizeAutomationBrowser(browser),
+      concurrency: 1,
+      nextIndex: 0,
+      lastPreview: null,
+      options: {
+        fiveSimApiKey: "",
+        manual: true,
+        connectionName: String(name || "").trim(),
+        maxRetries: 1,
+        smsTimeoutMs: timeoutMs,
+        pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+      },
+      accounts: [
+        {
+          ...normalizeCredentialObject({ label }, 1),
+          status: "queued",
+          error: null,
+          workerId: null,
+          currentStep: "queued",
+          updatedAt: createdAt,
+          connectionId: null,
+          runtimeSession: null,
+          providerSpecificData: {},
+          logs: [createLogEntry("queued", "Queued manual sandbox login")],
+        },
+      ],
     };
 
     this.jobs.set(jobId, job);
@@ -1524,8 +1824,16 @@ export class CodeBuddyCnAutomationManager {
       }
 
       if (!extracted) {
-        this.setAccountStep(account, "awaiting_manual_login", "Complete the login or registration flow in the opened browser");
-        extracted = await waitForManualCredentials(job, account, page, (step, message) => {
+        this.setAccountStep(
+          account,
+          "awaiting_manual_login",
+          job.options.manual
+            ? "Log in manually in the opened CodeBuddy CN window — the API key is captured via backend automatically"
+            : "Complete the login or registration flow in the opened browser"
+        );
+        // Robust capture: poll browser storage AND the backend /console/accounts
+        // probe, then mint the API key from the session (works even if restricted).
+        extracted = await waitForBrowserCredentialsOrApiKey(job, page, (step, message) => {
           this.setAccountStep(account, step, message);
         });
       }
@@ -1571,7 +1879,9 @@ export class CodeBuddyCnAutomationManager {
     try {
       const needsBrowser = job.accounts.some((account) => !account.hasCredentials);
       if (needsBrowser) {
-        job.browser = await this.browserLauncher(job.browserChoice || DEFAULT_AUTOMATION_BROWSER);
+        job.browser = await this.browserLauncher(job.browserChoice || DEFAULT_AUTOMATION_BROWSER, {
+          headless: job.headless !== false,
+        });
       }
 
       const workerCount = Math.min(job.concurrency, Math.max(job.accounts.length, 1));
@@ -1634,4 +1944,11 @@ export const __test__ = {
   getCodeBuddyCnLoginFrame,
   selectCodeBuddyCnRegion,
   mergeCodeBuddyCnUsageMetadata,
+  fillInputReliably,
+  fillPhoneInput,
+  fillOtpInput,
+  fetchCodeBuddyCnAccountContext,
+  acceptCodeBuddyCnAgreement,
+  isCodeBuddyCnRestricted,
+  findCodeBuddyCnAuthSurface,
 };

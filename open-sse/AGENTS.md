@@ -19,6 +19,7 @@
 - Preserve the chat lifecycle: `handlers/chatCore.js` resolves the model, selects an executor, translates the request, streams the upstream response, and translates chunks into the client format.
 - Keep models, provider metadata, role and block strings, limits, and other stable values config-driven rather than hard-coded in execution paths.
 - Keep warning and default-active metadata separate from `systemDisabled`; warned providers may remain user-enableable unless a hard runtime lock is intentional.
+- Keep CodeBuddy global user-enableable while surfacing upstream rejection warnings; only reintroduce `systemDisabled` for a verified hard runtime lock.
 - Use OpenAI as the normal intermediate translator format, but prefer an exact source-to-target registration when the bridge would lose thinking, images, tool identifiers, error state, or wire-format details.
 - Keep binary AWS EventStream, protobuf ConnectRPC, and NDJSON handling in their specialized executors instead of treating them as ordinary JSON or SSE translators.
 - Preserve abort propagation, streaming order, fallback behavior, terminal errors, and usage accounting across provider paths.
@@ -43,3 +44,4 @@
 ## Child DOX Index
 
 - `translator/AGENTS.md` - request and response format conversion, registrations, bridge constraints, and translator verification.
+

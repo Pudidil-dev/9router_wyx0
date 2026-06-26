@@ -3,8 +3,6 @@ export default {
   priority: 25,
   alias: "cb",
   uiAlias: "cb",
-  defaultActive: false,
-  systemDisabled: true,
   display: {
     name: "CodeBuddy",
     icon: "smart_toy",
@@ -16,7 +14,7 @@ export default {
     },
     deprecated: true,
     deprecationNotice: "RISK_NOTICE",
-    statusNotice: "CodeBuddy chat routing is currently disabled for normal use. The upstream now rejects this integration with code 11140: request illegal.",
+    statusNotice: "CodeBuddy global chat routing is enabled, but the upstream may still reject unsupported requests with code 11140: request illegal.",
   },
   category: "free",
   transport: {

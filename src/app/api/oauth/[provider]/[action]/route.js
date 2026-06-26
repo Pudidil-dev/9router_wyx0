@@ -26,6 +26,66 @@ function defaultConnectionActive(provider) {
   return AI_PROVIDERS[provider]?.defaultActive !== false;
 }
 
+// CodeBuddy CN OAuth login yields an access token but no API key. To match the
+// bulk automation — and to keep "access restricted" accounts usable — we mint an
+// API key straight from the backend with that token, then save it as an apikey
+// connection while keeping the OAuth tokens as a refresh fallback.
+async function saveCodeBuddyCnOAuthConnection(tokens) {
+  const accessToken = tokens.accessToken || "";
+  const baseProviderData = tokens.providerSpecificData || {};
+
+  let proxyOptions = null;
+  try {
+    const { resolveConnectionProxyConfig } = await import("@/lib/network/connectionProxy");
+    const cfg = await resolveConnectionProxyConfig(baseProviderData);
+    proxyOptions = {
+      connectionProxyEnabled: cfg.connectionProxyEnabled === true,
+      connectionProxyUrl: cfg.connectionProxyUrl || "",
+      connectionNoProxy: cfg.connectionNoProxy || "",
+      vercelRelayUrl: cfg.vercelRelayUrl || "",
+      strictProxy: false,
+    };
+  } catch {
+    proxyOptions = null;
+  }
+
+  const { mintCodeBuddyCnApiKeyViaBackend, buildCodeBuddyCnProviderMetadata } = await import(
+    "open-sse/services/codebuddyCn.js"
+  );
+
+  const apiKey = await mintCodeBuddyCnApiKeyViaBackend({
+    accessToken,
+    providerSpecificData: baseProviderData,
+    proxyOptions,
+  }).catch(() => null);
+
+  const providerSpecificData = {
+    ...baseProviderData,
+    ...buildCodeBuddyCnProviderMetadata({
+      apiKey,
+      accessToken,
+      idToken: tokens.idToken,
+      providerSpecificData: baseProviderData,
+    }),
+    // Token fallback so the connection can still refresh via OAuth later.
+    accessToken: accessToken || baseProviderData.accessToken,
+    refreshToken: tokens.refreshToken || baseProviderData.refreshToken,
+  };
+
+  return await createProviderConnection({
+    provider: "codebuddy-cn",
+    ...tokens,
+    providerSpecificData,
+    authType: apiKey ? "apikey" : "oauth",
+    ...(apiKey ? { apiKey } : {}),
+    expiresAt: tokens.expiresIn
+      ? new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
+      : null,
+    isActive: defaultConnectionActive("codebuddy-cn"),
+    testStatus: "active",
+  });
+}
+
 async function completeXaiManualCode(code, state) {
   const session = state ? getXaiSessionStatus(state) : null;
   if (!session) {
@@ -307,20 +367,22 @@ export async function POST(request, { params }) {
       }
 
       if (result.success) {
-        // Save to database
-        const connection = await createProviderConnection({
-          provider,
-          authType: "oauth",
-          ...result.tokens,
-          expiresAt: result.tokens.expiresIn 
-            ? new Date(Date.now() + result.tokens.expiresIn * 1000).toISOString() 
-            : null,
-          isActive: defaultConnectionActive(provider),
-          testStatus: "active",
-        });
+        // CodeBuddy CN: mint a backend API key from the token (see helper above).
+        const connection = provider === "codebuddy-cn"
+          ? await saveCodeBuddyCnOAuthConnection(result.tokens)
+          : await createProviderConnection({
+              provider,
+              authType: "oauth",
+              ...result.tokens,
+              expiresAt: result.tokens.expiresIn
+                ? new Date(Date.now() + result.tokens.expiresIn * 1000).toISOString()
+                : null,
+              isActive: defaultConnectionActive(provider),
+              testStatus: "active",
+            });
 
-        return NextResponse.json({ 
-          success: true, 
+        return NextResponse.json({
+          success: true,
           connection: {
             id: connection.id,
             provider: connection.provider,

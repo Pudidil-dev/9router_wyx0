@@ -1,7 +1,10 @@
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
+
 const BASE64_BLOCK_SIZE = 4;
 
 export const CODEBUDDY_CN_DEFAULT_DOMAIN = "www.codebuddy.cn";
 export const CODEBUDDY_CN_PROBE_URL = `https://${CODEBUDDY_CN_DEFAULT_DOMAIN}/console/api/client/v1/api-keys`;
+export const CODEBUDDY_CN_CONSOLE_ACCOUNTS_URL = `https://${CODEBUDDY_CN_DEFAULT_DOMAIN}/console/accounts`;
 
 function withBase64Padding(raw) {
   const normalized = String(raw || "").replace(/-/g, "+").replace(/_/g, "/");
@@ -132,6 +135,92 @@ export function buildCodeBuddyCnAuthHeaders(credentials = {}, extraHeaders = {})
   }
 
   return headers;
+}
+
+function createCodeBuddyCnApiKeyName() {
+  const suffix = Math.floor(Math.random() * 900000) + 100000;
+  return `9router-cbcn-${Date.now().toString(36)}-${suffix}`;
+}
+
+async function readJsonSafe(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+// Resolve the user_enterprise_id needed for API key creation. Prefer the value
+// already decoded from the JWT; otherwise probe /console/accounts with the Bearer
+// token (the same authoritative "logged in" call the browser automation makes).
+export async function fetchCodeBuddyCnEnterpriseId({ accessToken, providerSpecificData = {}, proxyOptions = null, fetchImpl = proxyAwareFetch } = {}) {
+  const fromMeta = String(providerSpecificData.codebuddyCnEnterpriseId || "").trim();
+  if (fromMeta) {
+    return { enterpriseId: fromMeta, uid: String(providerSpecificData.codebuddyCnUserId || "").trim() };
+  }
+
+  try {
+    const response = await fetchImpl(
+      CODEBUDDY_CN_CONSOLE_ACCOUNTS_URL,
+      {
+        method: "GET",
+        headers: buildCodeBuddyCnAuthHeaders(
+          { accessToken, providerSpecificData },
+          { Accept: "application/json, text/plain, */*" }
+        ),
+      },
+      proxyOptions
+    );
+    const json = await readJsonSafe(response);
+    const accounts = json?.data?.accounts || [];
+    if (response.ok && json?.code === 0 && accounts.length) {
+      const first = accounts[0] || {};
+      return {
+        enterpriseId: String(first.userEnterpriseId || first.user_enterprise_id || "personal-edition-user-id"),
+        uid: String(first.uid || ""),
+      };
+    }
+  } catch {
+    // best-effort; fall through to the personal default
+  }
+
+  return { enterpriseId: "personal-edition-user-id", uid: "" };
+}
+
+// Mints a CodeBuddy CN API key purely from the backend using the OAuth access
+// token as a Bearer credential — no browser/cookies required. This mirrors what
+// the bulk automation does, and crucially still works when the account is
+// "access restricted" in the UI, because the token itself remains valid.
+export async function mintCodeBuddyCnApiKeyViaBackend({ accessToken, providerSpecificData = {}, proxyOptions = null, fetchImpl = proxyAwareFetch } = {}) {
+  const token = String(accessToken || "").trim();
+  if (!token) return null;
+
+  const { enterpriseId } = await fetchCodeBuddyCnEnterpriseId({ accessToken: token, providerSpecificData, proxyOptions, fetchImpl });
+
+  try {
+    const response = await fetchImpl(
+      CODEBUDDY_CN_PROBE_URL,
+      {
+        method: "POST",
+        headers: buildCodeBuddyCnAuthHeaders(
+          { accessToken: token, providerSpecificData },
+          { "Content-Type": "application/json", Accept: "application/json, text/plain, */*" }
+        ),
+        body: JSON.stringify({
+          name: createCodeBuddyCnApiKeyName(),
+          expire_in_days: -1,
+          user_enterprise_id: enterpriseId,
+        }),
+      },
+      proxyOptions
+    );
+    const json = await readJsonSafe(response);
+    if (!response.ok || json?.code !== 0) return null;
+    const apiKey = String(json?.data?.key || json?.data?.api_key || json?.data?.token || "").trim();
+    return apiKey || null;
+  } catch {
+    return null;
+  }
 }
 
 function collectObjects(value, out = []) {

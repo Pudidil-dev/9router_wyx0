@@ -53,6 +53,13 @@ export default function CodeBuddyCnAutomationModal({
   const [restoreNotice, setRestoreNotice] = useState("");
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [mode, setMode] = useState("bulk");
+  const [manualApiKey, setManualApiKey] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [savingManual, setSavingManual] = useState(false);
+  const [manualNotice, setManualNotice] = useState("");
+  const [sandboxName, setSandboxName] = useState("");
+  const [startingSandbox, setStartingSandbox] = useState(false);
   const notifiedJobRef = useRef(null);
 
   const rememberJob = useCallback((nextJob) => {
@@ -193,8 +200,58 @@ export default function CodeBuddyCnAutomationModal({
     }
   };
 
+  const handleSaveManualKey = async () => {
+    if (!manualApiKey.trim()) {
+      setError("Enter a CodeBuddy CN API key.");
+      return;
+    }
+    setSavingManual(true);
+    setError("");
+    setManualNotice("");
+    try {
+      const response = await fetch("/api/oauth/codebuddy-cn/api-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: manualApiKey.trim(), name: manualName.trim() }),
+      });
+      const payload = await readResponse(response, "Failed to add the CodeBuddy CN API key");
+      setManualApiKey("");
+      setManualName("");
+      setManualNotice(`Added connection${payload?.connection?.name ? `: ${payload.connection.name}` : ""}.`);
+      onSuccess?.();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSavingManual(false);
+    }
+  };
+
+  const handleStartSandbox = async () => {
+    setStartingSandbox(true);
+    setError("");
+    setRestoreNotice("");
+    try {
+      const response = await fetch("/api/tools/automation/cbcn/manual-login/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: sandboxName.trim() }),
+      });
+      const payload = await readResponse(response, "Failed to start CodeBuddy CN sandbox login");
+      notifiedJobRef.current = null;
+      rememberJob(payload.job);
+    } catch (sandboxError) {
+      setError(sandboxError.message);
+    } finally {
+      setStartingSandbox(false);
+    }
+  };
+
   const handleClose = () => {
     setFiveSimApiKey("");
+    setManualApiKey("");
+    setManualName("");
+    setManualNotice("");
+    setSandboxName("");
     setError("");
     onClose?.();
   };
@@ -217,7 +274,77 @@ export default function CodeBuddyCnAutomationModal({
       closeOnOverlay={!starting && !cancelling}
     >
       <div className="flex min-w-0 flex-col gap-5">
-        {!active && (
+        <div className="flex gap-1 rounded-lg border border-border bg-background/40 p-1">
+          {[
+            ["bulk", "5sim Bulk Registration"],
+            ["sandbox", "Sandbox Login"],
+            ["manual", "Manual API Key"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => { setMode(value); setError(""); }}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                mode === value ? "bg-primary text-white" : "text-text-muted hover:text-text-main"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "manual" && (
+          <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4">
+            <p className="text-sm text-text-muted">
+              Paste a CodeBuddy CN API key to add it directly as a connection — no browser automation needed.
+            </p>
+            <Input
+              label="CodeBuddy CN API Key"
+              type="password"
+              value={manualApiKey}
+              onChange={(event) => setManualApiKey(event.target.value)}
+              placeholder="Enter CodeBuddy CN API key"
+              disabled={disabled || savingManual}
+              required
+            />
+            <Input
+              label="Connection Name (optional)"
+              value={manualName}
+              onChange={(event) => setManualName(event.target.value)}
+              placeholder="CodeBuddy CN (API Key)"
+              disabled={disabled || savingManual}
+            />
+            <div className="flex items-end">
+              <Button onClick={handleSaveManualKey} loading={savingManual} disabled={disabled || !manualApiKey.trim()} icon="add">
+                Add API Key
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {mode === "sandbox" && !active && (
+          <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4">
+            <p className="text-sm text-text-muted">
+              Opens a real CodeBuddy CN browser window on this machine. Log in by hand (your own number + OTP).
+              Once you&apos;re in, the API key is minted via the backend and connected to 9router automatically —
+              no 5sim, no wasted numbers, and it works even if the UI shows &quot;restricted&quot;.
+            </p>
+            <Input
+              label="Connection Name (optional)"
+              value={sandboxName}
+              onChange={(event) => setSandboxName(event.target.value)}
+              placeholder="Manual CodeBuddy CN Login"
+              disabled={disabled || startingSandbox}
+            />
+            <div className="flex items-end">
+              <Button onClick={handleStartSandbox} loading={startingSandbox} disabled={disabled} icon="open_in_browser">
+                Open Sandbox &amp; Log In
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {mode === "bulk" && !active && (
           <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
             <Input
               label="5sim API Key"
@@ -261,14 +388,17 @@ export default function CodeBuddyCnAutomationModal({
           </div>
         )}
 
-        {restoreNotice && (
+        {restoreNotice && mode !== "manual" && (
           <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">{restoreNotice}</p>
+        )}
+        {manualNotice && mode === "manual" && (
+          <p className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-600 dark:text-green-400">{manualNotice}</p>
         )}
         {error && (
           <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">{error}</p>
         )}
 
-        {job?.jobId && (
+        {(mode === "bulk" || mode === "sandbox") && job?.jobId && (
           <>
             <div className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
