@@ -23,4 +23,21 @@ export const FILTERS = {
     (Array.isArray(models) ? models : [])
       .filter((m) => m.id?.startsWith("mimo") || m.name?.toLowerCase().includes("mimo"))
       .map((m) => ({ id: m.id, name: m.name || m.id })),
+
+  // Alibaba DashScope /models — keep only image-generation models.
+  // Matches: wan*, wanx*, qwen-image*, qwen-image-edit*, z-image*
+  // Excludes: chat, embedding, vl, asr, tts, omni, mt, coder models.
+  "alibaba-image": (models) =>
+    (Array.isArray(models) ? models : [])
+      .filter((m) => {
+        const id = (m.id || "").toLowerCase();
+        return (
+          id.startsWith("wan") ||
+          id.startsWith("wanx") ||
+          id.startsWith("qwen-image") ||
+          id.startsWith("z-image")
+        );
+      })
+      .map((m) => ({ id: m.id, name: m.name || m.id }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
 };

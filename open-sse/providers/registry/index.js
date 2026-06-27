@@ -1,6 +1,7 @@
 // Auto-generated: static imports of all registry entries
 import p0 from "./alicode.js";
 import p1 from "./alicode-intl.js";
+import p1b from "./alibaba-image.js";
 import p2 from "./anthropic.js";
 import p3 from "./antigravity.js";
 import p4 from "./assemblyai.js";
@@ -99,6 +100,7 @@ import p94 from "./gemini-web.js";
 export default [
   p0,
   p1,
+  p1b,
   p2,
   p3,
   p4,

@@ -19,9 +19,16 @@ function isAnthropicCompatible(provider) {
   return typeof provider === "string" && provider.startsWith(ANTHROPIC_COMPATIBLE_PREFIX);
 }
 
-function getOpenAICompatibleType(provider) {
+function getOpenAICompatibleType(provider, credentials) {
   if (!isOpenAICompatible(provider)) return "chat";
-  return provider.includes("responses") ? "responses" : "chat";
+  // Only treat as Responses API when the user explicitly configured a baseUrl
+  // ending with /responses. Previously we checked `provider.includes("responses")`
+  // which fired for any custom provider whose auto-generated id happened to
+  // contain "responses" (e.g. "openai-compatible-responses-<uuid>"), causing
+  // the router to translate tool calls into Responses API format and send
+  // them to a Chat Completions endpoint — upstream rejects with 400.
+  const baseUrl = credentials?.providerSpecificData?.baseUrl || "";
+  return /\/responses$/.test(baseUrl) ? "responses" : "chat";
 }
 
 // Detect request format from body structure
@@ -105,9 +112,9 @@ export function detectFormat(body) {
 }
 
 // Get provider config (internal — no external runtime consumer)
-function getProviderConfig(provider) {
+function getProviderConfig(provider, credentials) {
   if (isOpenAICompatible(provider)) {
-    const apiType = getOpenAICompatibleType(provider);
+    const apiType = getOpenAICompatibleType(provider, credentials);
     return {
       ...PROVIDERS.openai,
       format: apiType === "responses" ? "openai-responses" : "openai",
@@ -125,14 +132,14 @@ function getProviderConfig(provider) {
 }
 
 // Get target format for provider
-export function getTargetFormat(provider) {
+export function getTargetFormat(provider, credentials) {
   if (isOpenAICompatible(provider)) {
-    return getOpenAICompatibleType(provider) === "responses" ? "openai-responses" : "openai";
+    return getOpenAICompatibleType(provider, credentials) === "responses" ? "openai-responses" : "openai";
   }
   if (isAnthropicCompatible(provider)) {
     return "claude";
   }
-  const config = getProviderConfig(provider);
+  const config = getProviderConfig(provider, credentials);
   return config.format || "openai";
 }
 

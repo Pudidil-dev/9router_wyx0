@@ -112,6 +112,23 @@ export const PROVIDER_CAPABILITIES = {
     "deepseek-v4-flash":  { vision: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 50000 },
     "deepseek-v3-2-volc": { reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 96000, maxOutput: 32000 },
   },
+
+  // Alibaba Intl (DashScope coding-intl gateway) — same model lineup as CodeBuddy CN
+  // (GLM, Kimi, MiniMax, DeepSeek, Qwen3-coder) exposed via OpenAI-compatible API.
+  // All reasoning models take OpenAI-style reasoning_effort; without this flag the
+  // router omits reasoning params, GLM-5.2 emits thinking-only deltas, and the
+  // final response body has an empty `content` field.
+  "alicode-intl": {
+    "glm-5.2":          { reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 48000 },
+    "glm-5.1":          { reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 200000, maxOutput: 48000 },
+    "glm-5":            { reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 48000 },
+    "glm-4.7":          { reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 48000 },
+    "kimi-k2.5":        { vision: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 164000, maxOutput: 32000 },
+    "MiniMax-M2.5":     { vision: true, reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 200000, maxOutput: 48000 },
+    "qwen3-coder-next": { reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 256000, maxOutput: 32000 },
+    "qwen3-coder-plus": { reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 256000, maxOutput: 32000 },
+    "qwen3.5-plus":     { reasoning: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 131072, maxOutput: 48000 },
+  },
 };
 
 /**

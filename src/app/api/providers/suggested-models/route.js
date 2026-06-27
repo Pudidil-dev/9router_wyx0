@@ -7,6 +7,9 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const url = searchParams.get("url");
   const type = searchParams.get("type");
+  // Optional API key — some providers (e.g. Alibaba DashScope) require auth on /models.
+  // Passed from client when user triggers auto-detect with an existing connection.
+  const apiKey = searchParams.get("apiKey");
 
   if (!url || !type) {
     return NextResponse.json({ error: "Missing url or type" }, { status: 400 });
@@ -18,7 +21,9 @@ export async function GET(request) {
   }
 
   try {
-    const res = await fetch(url);
+    const headers = {};
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    const res = await fetch(url, { headers });
     if (!res.ok) {
       return NextResponse.json({ data: [] });
     }

@@ -4,7 +4,8 @@ import { useState, useCallback, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
-import { getProviderAlias } from "@/shared/constants/providers";
+import { getProviderAlias, AI_PROVIDERS } from "@/shared/constants/providers";
+import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 
 // ── ModelRow ───────────────────────────────────────────────────
@@ -117,9 +118,12 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [testError, setTestError] = useState("");
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
   const [connections, setConnections] = useState([]);
+  const [suggestedModels, setSuggestedModels] = useState([]);
+  const [detecting, setDetecting] = useState(false);
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
   const effectiveType = kindFilter || "llm";
+  const fetcher = AI_PROVIDERS?.[providerId]?.modelsFetcher;
 
   const fetchData = useCallback(async () => {
     try {
@@ -181,6 +185,29 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         window.dispatchEvent(new CustomEvent("customModelChanged"));
       }
     } catch (e) { console.log("delete custom model error:", e); }
+  };
+
+  // Auto-detect models via provider's modelsFetcher (if configured).
+  // For providers requiring auth on /models (e.g. Alibaba DashScope), we pass
+  // the first active connection's API key as Bearer.
+  const handleAutoDetect = async () => {
+    if (!fetcher || detecting) return;
+    setDetecting(true);
+    try {
+      const firstConn = connections.find((c) => c.isActive !== false && c.apiKey);
+      const apiKey = firstConn?.apiKey;
+      const data = await fetchSuggestedModels(fetcher, apiKey);
+      setSuggestedModels(data);
+    } catch (e) {
+      console.log("auto-detect error:", e);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const handleAddSuggested = async (modelId) => {
+    await handleAddCustomModel(modelId);
+    setSuggestedModels((prev) => prev.filter((m) => m.id !== modelId));
   };
 
   const handleTestModel = async (modelId) => {
@@ -272,7 +299,53 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
             <span className="material-symbols-outlined text-sm">add</span>
             Add Model
           </button>
+
+          {fetcher && (
+            <button
+              onClick={handleAutoDetect}
+              disabled={detecting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-primary/30 text-xs text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+              title="Fetch available models from provider's API"
+            >
+              <span
+                className="material-symbols-outlined text-sm"
+                style={detecting ? { animation: "spin 1s linear infinite" } : undefined}
+              >
+                {detecting ? "progress_activity" : "autorenew"}
+              </span>
+              {detecting ? "Detecting..." : "Auto Detect"}
+            </button>
+          )}
         </div>
+
+        {suggestedModels.length > 0 && (() => {
+          const addedIds = new Set([
+            ...displayModels.map((m) => m.id),
+            ...myCustomModels.map((m) => m.id),
+          ]);
+          const notAdded = suggestedModels.filter((m) => !addedIds.has(m.id));
+          if (notAdded.length === 0) return null;
+          return (
+            <div className="w-full mt-2">
+              <p className="text-xs text-text-muted mb-2">
+                Suggested models ({notAdded.length} detected):
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {notAdded.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => handleAddSuggested(m.id)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-black/10 dark:border-white/10 text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                    title={m.name || m.id}
+                  >
+                    <span className="material-symbols-outlined text-[13px]">add</span>
+                    {m.id}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </Card>
 
       <AddCustomModelModal

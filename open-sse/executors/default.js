@@ -380,7 +380,15 @@ export class DefaultExecutor extends BaseExecutor {
     if (this.provider?.startsWith?.("openai-compatible-")) {
       const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
-      const path = this.provider.includes("responses") ? "/responses" : "/chat/completions";
+      // Only use the Responses API path when the user explicitly configured a
+      // baseUrl that ends with /responses. Previously we checked
+      // `this.provider.includes("responses")` which fired for any custom
+      // provider whose auto-generated id happened to contain "responses"
+      // (e.g. "openai-compatible-responses-<uuid>"), routing Chat Completions
+      // clients to an unsupported /responses endpoint on providers like
+      // DashScope and producing empty output.
+      const useResponses = /\/responses$/.test(normalized);
+      const path = useResponses ? "" : "/chat/completions";
       return `${normalized}${path}`;
     }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
